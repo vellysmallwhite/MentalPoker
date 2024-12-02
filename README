@@ -1,0 +1,16 @@
+
+Network flowchart.
+graph TD
+    A[ListenSocket] -->|Accept New Connection| B[Create PendingConnection]
+    B -->|Start Handshake| C[Wait for HELLO/WELCOME]
+    C -->|Handshake Complete| D[Add to Active Peers]
+    D -->|Epoll Events| E[Handle Peer Messages]
+
+
+Incoming connections arrive at ListenSocket
+Handshake establishes peer identity and current gamestate
+Messages processed through epoll events
+Bi-directional communication through established sockets
+
+When a person is new founded game he need to update the seat concensus.
+Where he also determine his predecessor and successor.

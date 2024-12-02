@@ -1,0 +1,77 @@
+# docker-compose.yml
+version: '3'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_TYPE=server
+      - NODE_ID=server
+      - HOSTNAME=poker-server.local
+    networks:
+      poker_network:
+        aliases:
+          - poker-server.local
+    volumes:
+      - ./src/server:/app/MentalPoker/src/server
+
+  player1:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    hostname: player1
+    environment:
+      - NODE_TYPE=client
+      - NODE_ID=player1.local
+      - HOSTNAME=player1.local
+      - SERVER_HOST=poker-server.local
+    networks:
+      poker_network:
+        aliases:
+          - player1.local
+    depends_on:
+      - server
+
+  player2:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    hostname: player2
+    environment:
+      - NODE_TYPE=client
+      - NODE_ID=player2
+      - SERVER_HOST=poker-server.local
+      - HOSTNAME=player2.local
+
+    networks:
+      poker_network:
+        aliases:
+          - player2.local
+    depends_on:
+      - server
+
+  # player3:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.client
+  #   hostname: player3
+  #   environment:
+  #     - NODE_TYPE=client
+  #     - NODE_ID=player3
+  #     - SERVER_HOST=poker-server.local
+  #     - HOSTNAME=player3.local
+      
+  #   networks:
+  #     poker_network:
+  #       aliases:
+  #         - player3.local
+  #   depends_on:
+  #     - server
+
+networks:
+  poker_network:
+    driver: bridge

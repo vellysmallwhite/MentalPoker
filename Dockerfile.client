@@ -1,0 +1,29 @@
+# Dockerfile.client
+FROM gcc:latest
+
+# Install only required libraries
+RUN apt-get update && \
+    apt-get install -y \
+    libjsoncpp-dev \
+    libboost-system-dev \
+    libboost-thread-dev &&\
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /MentalPoker
+
+# Copy only necessary files
+COPY src/ src/
+
+# Compile main.cpp directly with dependencies
+RUN g++ -std=c++17 -o poker \
+src/main.cpp \
+src/network/NetworkManager.cpp \
+src/application/GameEngine.cpp \
+src/application/MembershipList.cpp \
+-pthread -ljsoncpp -lboost_system -lboost_thread \
+-I/usr/include/jsoncpp \
+-I./src/network \
+-I./src/application
+
+# Run the program
+CMD ["./poker"]

@@ -1,0 +1,43 @@
+{
+    "files.associations": {
+        "string": "cpp",
+        "thread": "cpp"
+    },
+    "configurations": [
+
+        {
+
+            "name": "Mac",
+
+            "includePath": [
+
+                "$MentalPoker/**",
+
+                "$MentalPoker/src/network"
+
+            ],
+
+            "defines": [],
+
+            "macFrameworkPath": [],
+
+            "compilerPath": "/usr/bin/clang++",
+
+            "cStandard": "c17",
+
+            "cppStandard": "c++17",
+
+            "intelliSenseMode": "macos-clang-x64"
+
+        }
+
+    ],
+
+    "version": 4
+}
+
+
+
+   
+
+

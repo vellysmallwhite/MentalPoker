@@ -1,0 +1,149 @@
+### Presentation of the Consensus Algorithm for Mental Poker
+
+#### Introduction
+The consensus algorithm for our mental poker game is designed to ensure that all players agree on each action taken during the game. This is crucial for maintaining fairness and consistency, especially in a distributed environment where players may be located in different places. The algorithm is based on the principles of Byzantine Fault Tolerance (BFT), which allows the system to reach consensus even if some players (up to a certain number) act maliciously or fail.
+
+#### Key Concepts
+1. **Height (hp)**: Represents the current consensus instance or action number we are executing.
+2. **Round (roundp)**: Indicates the current round number within the consensus process.
+3. **Step (stepp)**: The current phase of the consensus process, which can be 
+
+PROPOSE
+
+, 
+
+PREVOTE
+
+, or 
+
+PRECOMMIT
+
+.
+4. **CommitEntry**: A structure that records the details of each proposed action, including the player who proposed it, the action itself, the game phase, and any associated bet amount.
+
+#### Algorithm Phases
+The consensus process is divided into several phases:
+
+1. **Propose Phase**:
+   - The proposer (the player whose turn it is) creates a 
+
+CommitEntry
+
+ for their action (e.g., bet, fold).
+   - If the proposer has a valid value from a previous round, they use it; otherwise, they generate a new value.
+   - The proposer broadcasts the proposal to all other players.
+
+2. **Prevote Phase**:
+   - Upon receiving a proposal, each player validates it.
+   - If the proposal is valid and either the player is not locked on a previous value or the locked value matches the proposal, they broadcast a 
+
+PREVOTE
+
+ message.
+   - If the proposal is invalid, they broadcast a 
+
+PREVOTE
+
+ with a `nil` value.
+
+3. **Precommit Phase**:
+   - If a player receives `2f + 1` 
+
+PREVOTE
+
+ messages for a proposal (where `f` is the maximum number of faulty players), they broadcast a 
+
+PRECOMMIT
+
+ message.
+   - If they receive `2f + 1` 
+
+PREVOTE
+
+ messages with `nil`, they also broadcast a 
+
+PRECOMMIT
+
+ with `nil`.
+
+4. **Decision Phase**:
+   - If a player receives `2f + 1` 
+
+PRECOMMIT
+
+ messages for a proposal, they consider the proposal decided and commit it to the game log.
+   - The player then increments the height and starts a new round.
+
+#### Detailed Steps
+1. **Initialization**:
+   - Set `hp` to 0 (current height).
+   - Set `roundp` to 0 (current round number).
+   - Set `stepp` to 
+
+PROPOSE
+
+.
+   - Initialize `decisionp[]`, `lockedValuep`, `lockedRoundp`, `validValuep`, and `validRoundp` to their initial values.
+
+2. **StartRound Function**:
+   - Set `roundp` to the new round.
+   - Set `stepp` to 
+
+PROPOSE
+
+.
+   - If the player is the proposer for the current round, broadcast a proposal.
+   - Otherwise, schedule a timeout for the propose phase.
+
+3. **Proposal Handling**:
+   - Upon receiving a proposal, validate it.
+   - If valid and either not locked or locked on the same value, broadcast a 
+
+PREVOTE
+
+ for the proposal.
+   - Otherwise, broadcast a 
+
+PREVOTE
+
+ with `nil`.
+
+4. **Prevote Handling**:
+   - Upon receiving `2f + 1` 
+
+PREVOTE
+
+ messages, broadcast a 
+
+PRECOMMIT
+
+ for the proposal if it has a majority.
+   - Otherwise, broadcast a 
+
+PRECOMMIT
+
+ with `nil`.
+
+5. **Precommit Handling**:
+   - Upon receiving `2f + 1` 
+
+PRECOMMIT
+
+ messages, commit the proposal to the game log and start a new round.
+
+6. **Timeout Handling**:
+   - If a timeout occurs at any phase, broadcast the appropriate message (
+
+PREVOTE
+
+ or 
+
+PRECOMMIT
+
+ with `nil`) and move to the next phase.
+
+#### Philosophy
+The philosophy behind this consensus algorithm is to ensure that all players in the game agree on each action before it is executed. This prevents any single player from making unilateral decisions that could affect the fairness of the game. By requiring a majority of players to agree on each action, the algorithm ensures that the game progresses smoothly even in the presence of faulty or malicious players.
+
+#### Conclusion
+This consensus algorithm is a robust solution for maintaining fairness and consistency in a distributed mental poker game. By following the phases of propose, prevote, and precommit, and requiring a majority agreement at each step, the algorithm ensures that all players have a say in the game's progression and that the game state remains consistent across all players.
