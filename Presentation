@@ -1,4 +1,314 @@
-### Presentation of the Consensus Algorithm for Mental Poker
+Template:
+
+1 slide - title, class number, your names
+ 2-3 slides for intro/context/background
+ 1 slide - goals of your project
+ 1 slide - challenges
+ 3-4 slides- what you did
+ 2-3 slides - remaining work, issues you might run into
+ 1 slide - conclusion
+ 
+ Use pictures, examples to convey the ideas. You can 
+ insert short videos if you already have a demo
+
+##Here is the outline
+
+1slide - title, class number, your names:
+
+Mental poker, CS7610 , Yiling Peng ; Bereket Yisehak; Anyu Yang
+
+2-3 slides for intro/context/background:
+
+Playpoker has been an easy to perform task offline with untrusted authority. But when it comes to online gaming it has been very challenging to do such an easy task with decentralized setting and a dealer that ensure the fairplay of poker game. 
+In traditional online, there is online poker platform that rack the game to provide service. But their fairness can't be ensure: For example, since the game logic is completely implemented on server , the server deals  arbitrary card instead of shuffling randomly. On some websites, the server code will makes very unlikely scenario happens frequently to get player tilted so that these tilted player will keep punting on their platform.
+For offline game, the honest of the dealer is still an issue. Casino is the safest place to play texas holdem but at homegame there is no garauntee of the honesty of the dealer: Many rich guy go to the homegame ending up being cheated either by the RFID card or highly skilled cheating dealer.
+To solve this issue, the founders of RSA suggested an algorithmn that enable players to take turns to shuffle in turns to encrypt the deck. The randomness is ensured by the fact that each player won't like to give other player any advantage.
+This algorithmn is a slightly modified version of rsa:(introduce how this algorithmn works).
+After that , many similar algorithmn papers that study this hypothetical scenario emerges. But due to the efficency issue and the fact that the technology is wide and replacing the dealer won't generate revenue for the developer  so there is only a few existing working mental poker project.
+
+ 1-2 slide - goals of your project(can be extended as the portion of what we have done)
+ The goal of our project is to figure out how to implement a distributed architexture and protocols that facilitate application like mental poker, and implement the most basic sra encryption algorithmn with slight modification. We aim to start with most simple scenario, and at the end the players will be able to play the game with minimum contact with centralized server, and will be able to know when they got cheated(except collusion which cannot be prevented anyway in online enviroment or offline envrioment). : Peers will star the program by contacting room servers. Which will return existing or create room, the room is a table with a fixed seat of 12, as well as the players that currently seating at the table. 
+
+ After obtaining the list , the player will start communicating with the peers in that room and talk to the peer to declare wether they are ready to start the new game. 
+ 
+ 
+ we made many assumptions:1. We assume that no conlusion exists. 2. We assume that the network partiction is not an issue in our first implementation. 3. We assume that the server  is trust worthy() 4. And player will only add to the room , and stay at that room forever(for first version development). 5. Assume that no player in a table know each other before, and more tham 2/3 of players in a table is honest and will be honest to make this game safe.
+
+
+
+
+  1 slide - challenges:
+  There are many challenge:1. we introduce new problem: if each player know other's ip address . It will be much easier for them to contact each other and make an agreement to collude in the game.  2. The design means that the gameplay will need to solve the chanllenge of encrytion speed and the fact that the game cannot go on with even one player exit after the game start.  3. The bft assumption is not a correct one in the application of poker.(But this it is a good practice to implement concensus algorithmn for distributed system like this , which can be extened to further applications)  4. The integrity of the shuffle can't be garauntee mathematically , it can potentially be solved by using the Zero knowledge proof algorithmns in the futuer according to many paper.
+
+3-4 slides- what you did:
+We have many implementation ideas and have write skeleton code for each part, but we haven't compelete a lot of testing. Here is overall structure of our project and  what we already implemented but didn't verify that it runs smoothly.
+We successfully specifies different module of this project: server part, network part, concensus Algorithmn part, gameplay part, testing part, GUI part, encryption part. Which makes it easy for our team to split the work and finish the implementation efficiently.
+
+
+Now we have complete the server part and concensus part as well as the encryption part.
+
+Project Overview
+We have implemented a distributed mental poker system that allows multiple players to participate in a poker game without requiring a trusted central server. Our implementation focuses on three key aspects:
+
+Distributed networking and communication
+Byzantine Fault Tolerance consensus
+Secure card operations and game state management
+Key Components Implemented
+1. Server Implementation (server.py)
+Room management system
+Player join/leave handling
+Member list synchronization
+Pending join operations with acknowledgments
+Thread-safe room state management
+Message framing for reliable TCP communication
+2. Network Layer (NetworkManager.cpp)
+Asynchronous TCP communication using Boost.ASIO
+Peer-to-peer connection management
+Handshake protocol for peer authentication
+Message routing between peers
+Connection state management
+Error handling and recovery
+3. Consensus Module (Consensus.cpp)
+Implementation of Tendermint BFT consensus
+Three-phase commit protocol (Propose, Prevote, Precommit)
+Quorum-based decision making
+Lock mechanism to prevent conflicting decisions
+Round-based consensus with timeout handling
+Support for fault tolerance (up to f=(n-1)/3 faulty nodes)
+4. Game Engine (GameEngine.cpp)
+Game state machine implementation
+Action validation and processing
+Turn-based gameplay management
+Card encryption and shuffling coordination
+Betting rounds management
+Winner determination logic
+5. Membership Management (MembershipList.cpp)
+Thread-safe member list maintenance
+Dynamic member updates
+Member validation
+Consistent view of active players
+Technical Achievements
+Distributed Architecture
+Fully decentralized system
+No single point of failure
+Peer-to-peer communication
+Scale to 12 players per table
+Security Features
+Secure handshake protocol
+Byzantine Fault Tolerance
+Cryptographic card operations
+Action verification
+Consensus Implementation
+Three-phase commit protocol
+Lock-step consensus
+Quorum-based decision making
+Timeout handling
+Round management
+Game Logic
+Multiple game phases
+Action validation
+State synchronization
+Turn management
+Winner determination
+### Detailed Implementation Analysis
+
+#### Network Layer Implementation
+1. **TCP Socket Management**
+- Custom socket wrapper classes for reliable communication
+- Non-blocking I/O operations using epoll/kqueue
+- Connection pooling for efficient peer connections
+- Automatic reconnection handling
+- Buffer management for partial reads/writes
+
+2. **Boost.ASIO Integration**
+- Asynchronous operation scheduler
+- IO service management per node
+- Strand-based thread safety
+- Timer management for timeouts
+- Custom completion handlers
+
+3. **Message Framing Protocol**
+```cpp
+struct MessageFrame {
+    uint32_t length;     // Network byte order
+    uint16_t type;       // Message type identifier
+    uint16_t checksum;   // Verification
+    std::vector<uint8_t> payload;
+};
+```
+- Length-prefixed messages
+- Type-based message routing
+- Checksum verification
+- Fragmentation handling
+
+
+
+#### Consensus Protocol Details
+
+1. **Height Tracking**
+```cpp
+struct ConsensusHeight {
+    uint64_t height;     // Current consensus instance
+    uint32_t round;      // Current round number
+    std::map<int, Vote> votes;  // Vote collection
+};
+```
+- Monotonic height counter
+- Round number tracking
+- Vote collection per height
+- State persistence
+
+2. **Round Management**
+- Round timeout handling
+- Round change protocol
+- Leader selection
+- Progress tracking
+- Round synchronization
+
+3. **Vote Collection**
+```cpp
+struct VoteCollector {
+    std::map<int, std::set<Vote>> prevotes;
+    std::map<int, std::set<Vote>> precommits;
+    uint32_t quorum;
+    bool hasQuorum(const std::set<Vote>& votes);
+};
+```
+- Vote validation
+- Quorum calculation
+- Vote storage
+- Duplicate detection
+
+4. **Decision Making**
+- Three-phase commit
+- Locked value tracking
+- Valid value updates
+- Decision finalization
+- State transitions
+
+#### Game Logic Implementation
+
+1. **State Machine**
+```cpp
+enum class GameState {
+    WAITING_PLAYERS,
+    CARD_DISTRIBUTION,
+    BETTING_ROUND,
+    SHOWDOWN,
+    GAME_OVER
+};
+
+struct GameStateMachine {
+    GameState current_state;
+    std::vector<Transition> valid_transitions;
+    std::map<GameState, std::vector<Action>> allowed_actions;
+};
+```
+
+2. **Action Validation**
+```cpp
+struct ActionValidator {
+    bool validateAction(const Action& action, const GameState& state);
+    bool checkPlayerTurn(const Player& player);
+    bool validateBetAmount(int amount);
+    bool validateCardOperation(const CardOperation& op);
+};
+```
+
+3. **Turn Management**
+- Seat assignment
+- Turn order tracking
+- Timeout handling
+- Action broadcasting
+- State updates
+
+4. **Card Operations**
+```cpp
+struct CardOperation {
+    enum Type { ENCRYPT, DECRYPT, SHUFFLE };
+    Type type;
+    std::vector<Card> cards;
+    std::vector<Signature> signatures;
+};
+```
+
+#### Data Structure Implementation
+
+1. **Thread-safe Collections**
+```cpp
+template<typename T>
+class ThreadSafeQueue {
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::queue<T> queue;
+public:
+    void push(T item);
+    T pop();
+    bool try_pop(T& item);
+};
+```
+
+2. **Lock Mechanisms**
+- Mutex hierarchies
+- Read-write locks
+- Condition variables
+- Spinlocks
+- Deadlock prevention
+
+3. **Message Queues**
+```cpp
+struct MessageQueue {
+    ThreadSafeQueue<IncomingMessage> incoming;
+    ThreadSafeQueue<OutgoingMessage> outgoing;
+    std::atomic<bool> running;
+    void processMessages();
+};
+```
+
+4. **State Tracking**
+- Atomic operations
+- Version vectors
+- State replication
+- Consistency checking
+- Rollback support
+
+#### Future Enhancements
+
+1. **Scalability**
+- Dynamic table creation/deletion
+- Load-based player distribution
+- Connection pooling optimization
+- State partitioning
+
+2. **Security**
+- Zero-knowledge proofs for shuffling
+- Multi-party computation for card operations
+- Digital signatures for actions
+- Secure random number generation
+
+3. **Performance**
+- Optimized consensus paths
+- Batched operations
+- Network message compression
+- State caching
+
+4. **Features**
+- Tournament bracket management
+- Various poker game rules
+- Player ranking system
+- Achievement tracking
+
+This implementation provides a foundation for a distributed poker system that can be extended with additional features while maintaining the core requirements of security, fairness, and fault tolerance.
+Conclusion
+This implementation demonstrates a robust distributed poker system with strong consistency guarantees and fault tolerance. The modular design allows for future enhancements while maintaining the core requirements of fairness and security in a distributed card game.
+
+ 2-3 slides - remaining work, issues you might run into
+
+
+
+
+
+Here is some usecases:
 
 #### Introduction
 The consensus algorithm for our mental poker game is designed to ensure that all players agree on each action taken during the game. This is crucial for maintaining fairness and consistency, especially in a distributed environment where players may be located in different places. The algorithm is based on the principles of Byzantine Fault Tolerance (BFT), which allows the system to reach consensus even if some players (up to a certain number) act maliciously or fail.

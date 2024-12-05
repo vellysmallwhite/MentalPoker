@@ -1,8 +1,19 @@
 # Dockerfile.server
 FROM python:3.9-slim
 
-WORKDIR /app/MentalPoker
+# Install required packages
+RUN pip install --no-cache-dir flask
 
+WORKDIR /MentalPoker
+
+# Copy server files
 COPY src/server/ src/server/
 
-CMD ["python", "src/server/server.py"]
+# Make server.py executable
+RUN chmod +x src/server/server.py
+
+# Add debug logging
+ENV PYTHONUNBUFFERED=1
+
+# Run server with debug mode
+CMD ["python", "-u", "src/server/server.py"]

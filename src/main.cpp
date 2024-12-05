@@ -9,19 +9,12 @@
 
 
 // Function to extract numeric part from the end of the hostname
-int extractNodeId(const std::string& hostname) {
-    size_t pos = hostname.find_last_not_of("0123456789");
-    if (pos == std::string::npos || pos == hostname.length() - 1) {
-        return -1; // No numeric part found
-    }
-    std::string number = hostname.substr(pos + 1);
-    return std::stoi(number);
-}
+
 
 int main() {
     MembershipList membershipList;
     
-    // Get hostname from environment
+    // Get environment variables
     const char* hostname = std::getenv("HOSTNAME");
     const char* server_host = std::getenv("SERVER_HOST");
     
@@ -31,27 +24,37 @@ int main() {
     }
 
     // Extract NODE_ID from hostname
-    int nodeId = extractNodeId(hostname);
+    std::cout << "Hostname: " << hostname << std::endl;
+    int nodeId = NetworkManager::extractNodeId(hostname);
     if (nodeId == -1) {
-        std::cerr << "Failed to extract NODE_ID from hostname" << std::endl;
+        std::cerr << "Failed to extract NODE_ID from hostname: " << hostname << std::endl;
         return 1;
     }
+    std::cout << "Extracted NodeID: " << nodeId << std::endl;
 
-    // Initialize NetworkManager with hostname and NODE_ID
-    NetworkManager networkManager(
-        membershipList, 
-        hostname,
-        server_host,
-        nodeId
-    );
+    try {
+        // Initialize NetworkManager with correct parameters
+        NetworkManager networkManager(
+            membershipList,          // MembershipList reference
+            hostname,                // Client ID (hostname)
+            server_host,            // Server host
+            8080,                   // Base port
+            nodeId                  // Node ID
+        );
 
-    GameEngine gameEngine(membershipList);
+        // Initialize game engine
+        GameEngine gameEngine(membershipList);
 
-    // Start the network manager (gossip and consensus)
-    networkManager.start();
+        // Start network manager
+        networkManager.start();
 
-    // Run the main game engine
-    gameEngine.runGame();
+        // Run game engine
+        //gameEngine.runGame();
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 
     return 0;
 }
