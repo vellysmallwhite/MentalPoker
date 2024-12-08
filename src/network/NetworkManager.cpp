@@ -79,7 +79,7 @@ void NetworkManager::receiveServerMessage() {
         if (selectResult < 0) {
             if (errno == EINTR) {
                 std::cerr << "select() interrupted by signal, retrying..." << std::endl;
-                continue;  // Interrupted by signal, retry
+                continue;  // Interrupted by signal, retryf
             }
             continue;
             std::cerr << "Error in select: " << strerror(errno) << " (errno: " << errno << ")" << std::endl;
@@ -192,11 +192,13 @@ void NetworkManager::handleServerMessages(const std::string& message) {
             
             // Always update membership list from server response
             if (root.isMember("members")) {
+                std::cout << "Trying to update members"<<std::endl;
                 for (const auto& member : root["members"]) {
-                    membershipList.addMember(member.asString());
+                    membershipList.addMember(member.asString(),extractNodeId(member.asString()));
+                    std::cout << member.asString() << ",";
                 }
                 // Add self to membership list
-                membershipList.addMember(clientId);
+                membershipList.addMember(clientId,extractNodeId(clientId));
             }
 
             if (status == "pending") {
@@ -207,7 +209,13 @@ void NetworkManager::handleServerMessages(const std::string& message) {
                 }
             }
             else if (status == "success") {
-                std::cout << "Successfully joined room" << std::endl;
+                std::cout << "New player Successfully joined room" << std::endl;
+                if (pendingConnection.Waiting) {
+                    pendingConnection.Waiting=false;
+                    membershipList.addMember(pendingConnection.host,extractNodeId(pendingConnection.host));
+
+
+                }
             }
         }
     } catch (const std::exception& e) {
@@ -229,12 +237,12 @@ void NetworkManager::setupAsyncListener() {
 
 void NetworkManager::startRead(std::shared_ptr<boost::asio::ip::tcp::socket> socket) {
     auto buffer = std::make_shared<boost::asio::streambuf>();
-    boost::asio::async_read_until(*socket, *buffer, '\n',
+    boost::asio::async_read_until(*socket, *buffer, '\0',
         [this, socket, buffer](const boost::system::error_code& ec, std::size_t bytesTransferred) {
             if (!ec) {
                 std::istream is(buffer.get());
                 std::string message;
-                std::getline(is, message);
+                std::getline(is, message, '\0');  // Use null character as delimiter
 
                 if (!message.empty()) {
                     processPeerMessage(socket, message);
@@ -298,105 +306,6 @@ bool NetworkManager::connectToServer() {
     return true;
 }
 
-void NetworkManager::handlePeerEvent(int sock) {
-    std::lock_guard<std::mutex> lock(mtx);
-    auto it = pendingConnections.find(sock);
-    if (it != pendingConnections.end()) {
-        try {
-            handlePendingConnection(it->second);
-        } catch (const std::exception& e) {
-            std::cerr << "Error handling peer event: " << e.what() << std::endl;
-            removePendingConnection(sock);
-        }
-    }
-}
-
-void NetworkManager::handlePendingConnection(PendingConnection& pending) {
-    try {
-        std::string msg = receivePeerMessage(pending.socket);
-        Json::Value root;
-        Json::Reader reader;
-        
-        if (reader.parse(msg, root)) {
-            std::string type = root["type"].asString();
-            
-            if (type == "HELLO") {
-                int peerId = root["node_id"].asInt();
-                handleHello(pending, peerId);
-            } else if (type == "WELCOME") {
-                handleWelcome(pending);
-            } else {
-                //processPeerMessage(pending.socket, msg);
-            }
-        }
-    } catch (const std::exception& e) {
-        removePendingConnection(pending.socket);
-        throw;
-    }
-}
-
-void NetworkManager::handleHello(PendingConnection& pending, int peerId) {
-    std::lock_guard<std::mutex> lock(mtx);
-    
-    // Create WELCOME message
-    Json::Value welcome;
-    welcome["type"] = "WELCOME";
-    welcome["node_id"] = nodeId;
-    welcome["room_id"] = "room1";  // Add room information if needed
-    
-    try {
-        // Send WELCOME response
-        sendMessage(pending.socket, welcome);
-        
-        // Update connection state
-        pending.state = HandshakeState::ESTABLISHED;
-        pending.peerId = peerId;
-        
-        // Add to membership list
-        membershipList.addMember(std::to_string(peerId));
-        
-        std::cout << "Peer " << peerId << " connected successfully" << std::endl;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error in handleHello: " << e.what() << std::endl;
-        removePendingConnection(pending.socket);
-        throw;
-    }
-}
-
-void NetworkManager::handleWelcome(PendingConnection& pending) {
-    std::lock_guard<std::mutex> lock(mtx);
-    
-    try {
-        // Update connection state
-        pending.state = HandshakeState::ESTABLISHED;
-        
-        // Log successful connection
-        std::cout << "Connection established with peer " << pending.peerId << std::endl;
-        
-        // Add to active connections if needed
-        membershipList.addMember(std::to_string(pending.peerId));
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error in handleWelcome: " << e.what() << std::endl;
-        removePendingConnection(pending.socket);
-        throw;
-    }
-}
-
-std::string NetworkManager::receivePeerMessage(int socket) {
-    uint32_t length;
-    if (recv(socket, &length, 4, MSG_WAITALL) != 4) {
-        throw std::runtime_error("Failed to read message length");
-    }
-    length = ntohl(length);
-    
-    std::vector<char> buffer(length);
-    if (recv(socket, buffer.data(), length, MSG_WAITALL) != length) {
-        throw std::runtime_error("Failed to read message data");
-    }
-    return std::string(buffer.data(), length);
-}
 
 void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const std::string& message) {
     Json::Value root;
@@ -406,16 +315,22 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
     std::istringstream s(message);
     if (Json::parseFromStream(reader, s, &root, &errs)) {
         std::string type = root["type"].asString();
-        std::string tempjoinId=root.get("join_id","").asString();
+        
         if (type == "HELLO") {
             int peerId = root["node_id"].asInt();
+            std::string tempjoinId=root.get("join_id","").asString();
             
 
 
             {
                 std::lock_guard<std::mutex> lock(mtx);
                 incomingPeers[peerId] = socket;
+                pendingConnection.Waiting = true;
+                pendingConnection.host=root["hostname"].asString();
+
             }
+
+
 
             // Send WELCOME message
             Json::Value welcomeMsg;
@@ -444,35 +359,18 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
     }
 }
 
-void NetworkManager::removePendingConnection(int socket) {
-    std::lock_guard<std::mutex> lock(mtx);
-    
-    auto it = pendingConnections.find(socket);
-    if (it != pendingConnections.end()) {
-        // Close socket if still open
-        if (it->second.socket >= 0) {
-            shutdown(it->second.socket, SHUT_RDWR);
-            close(it->second.socket);
-        }
-        
-        // Remove from pending connections
-        pendingConnections.erase(it);
-        
-        // Update connection state if needed
-        if (pendingConnections.empty() && !connected) {
-            io_context.stop();
-        }
-        
-        std::cerr << "Removed pending connection for socket " << socket << std::endl;
-    }
-}
+
 
 
 
 void NetworkManager::sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const Json::Value& message) {
     Json::StreamWriterBuilder writer;
     std::string data = Json::writeString(writer, message);
-    data += "\n";  // Add newline delimiter
+    //data += "\n";  // Add newline delimiter
+    data += '\0';  // Use null character as delimiter
+
+    std::cout << "Sending message to peer: " << data << std::endl;
+
 
     auto buffer = std::make_shared<std::string>(data);
     boost::asio::async_write(*socket, boost::asio::buffer(*buffer),
@@ -511,18 +409,24 @@ void NetworkManager::removePeerConnection(std::shared_ptr<boost::asio::ip::tcp::
 
 
 
-void NetworkManager::establishPeerConnection(const std::string& peerHostname,const std::string& joinId) {
+void NetworkManager::establishPeerConnection(const std::string& peerHostname, const std::string& joinId) {
     auto socket = std::make_shared<boost::asio::ip::tcp::socket>(io_context);
     boost::asio::ip::tcp::resolver resolver(io_context);
-    std::cerr << "establishing connection to:" << peerHostname << ": " << << std::endl;
-
     int peerPort = serverPort + extractNodeId(peerHostname);  // Assuming port offset by node ID
     auto endpoints = resolver.resolve(peerHostname, std::to_string(peerPort));
 
     boost::asio::async_connect(*socket, endpoints,
-        [this, socket, peerHostname](const boost::system::error_code& ec, const boost::asio::ip::tcp::endpoint&) {
+        [this, socket, peerHostname, joinId](const boost::system::error_code& ec, const boost::asio::ip::tcp::endpoint&) {
             if (!ec) {
                 std::cout << "Connected to peer " << peerHostname << std::endl;
+                
+
+                // Store the socket to keep it alive
+                {
+                    std::lock_guard<std::mutex> lock(mtx);
+                    outgoingPeers[extractNodeId(peerHostname)] = socket;
+                }
+
                 handleHandshake(socket, true);  // Outgoing connection
             } else {
                 std::cerr << "Failed to connect to peer " << peerHostname << ": " << ec.message() << std::endl;
@@ -577,6 +481,7 @@ void NetworkManager::handleHandshake(std::shared_ptr<boost::asio::ip::tcp::socke
         helloMsg["type"] = "HELLO";
         helloMsg["node_id"] = nodeId;
         helloMsg["join_id"]=joinId;
+        helloMsg["hostname"]=clientId;
         sendJsonMessage(socket, helloMsg);
         return;
     }
@@ -598,18 +503,18 @@ void NetworkManager::sendJoinAckToServer(std::string jt) {
 // NetworkManager.cpp
 
 // Add constructors implementation
-PendingConnection::PendingConnection() 
-    : socket(-1)
-    , state(HandshakeState::INIT)
-    , peerId(-1)
-    , startTime(std::chrono::steady_clock::now())
-    , isOutgoing(false) {
-}
+// PendingConnection::PendingConnection() 
+//     : socket(-1)
+//     , state(HandshakeState::INIT)
+//     , peerId(-1)
+//     , startTime(std::chrono::steady_clock::now())
+//     , isOutgoing(false) {
+// }
 
-PendingConnection::PendingConnection(int sock, bool outgoing)
-    : socket(sock)
-    , state(outgoing ? HandshakeState::WAIT_WELCOME : HandshakeState::WAIT_HELLO)
-    , peerId(-1)
-    , startTime(std::chrono::steady_clock::now())
-    , isOutgoing(outgoing) {
-}
+// PendingConnection::PendingConnection(int sock, bool outgoing)
+//     : socket(sock)
+//     , state(outgoing ? HandshakeState::WAIT_WELCOME : HandshakeState::WAIT_HELLO)
+//     , peerId(-1)
+//     , startTime(std::chrono::steady_clock::now())
+//     , isOutgoing(outgoing) {
+// }

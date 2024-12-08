@@ -12,25 +12,30 @@
 
 
 
-enum class HandshakeState {
-    INIT,
-    WAIT_HELLO,
-    WAIT_WELCOME,
-    ESTABLISHED,
-    ERROR
-};
+// enum class HandshakeState {
+//     INIT,
+//     WAIT_HELLO,
+//     WAIT_WELCOME,
+//     ESTABLISHED,
+//     ERROR
+// };
+
+// struct PendingConnection {
+//     int socket;
+//     HandshakeState state;
+//     std::string peerHostname;
+//     int peerId;
+//     std::chrono::steady_clock::time_point startTime;
+//     bool isOutgoing;
+//     struct sockaddr_in addr;
+
+//     PendingConnection();
+//     PendingConnection(int sock, bool outgoing);
+// };
 
 struct PendingConnection {
-    int socket;
-    HandshakeState state;
-    std::string peerHostname;
-    int peerId;
-    std::chrono::steady_clock::time_point startTime;
-    bool isOutgoing;
-    struct sockaddr_in addr;
-
-    PendingConnection();
-    PendingConnection(int sock, bool outgoing);
+    std::string host;
+    bool Waiting;
 };
 
 class NetworkManager {
@@ -40,6 +45,8 @@ private:
     std::string clientId;
     std::string serverHost;
     std::string storedRoomId;
+    PendingConnection pendingConnection;
+    
 
     int serverPort;
     int serverSocket;
@@ -47,7 +54,7 @@ private:
     std::atomic<bool> connected;
     boost::asio::io_context io_context;
     boost::asio::ip::tcp::acceptor acceptor;
-    std::map<int, PendingConnection> pendingConnections;
+    //std::map<int, PendingConnection> pendingConnections;
     std::mutex mtx;
     //Threads
     std::thread receiverThread;
@@ -62,14 +69,9 @@ private:
 
     void startRead(std::shared_ptr<boost::asio::ip::tcp::socket> socket);
     void setupAsyncListener();
-    void handlePeerEvent(int sock);
     void handleNewConnection();
-    void handlePendingConnection(PendingConnection& pending);
     //void startPeerHandshake(const std::string& peerHostname);
-    void handleHello(PendingConnection& pending, int peerId);
-    void handleWelcome(PendingConnection& pending);
-    void removePendingConnection(int socket);
-    void processPeerMessage(int socket, const std::string& msg);
+    
     void receiveServerMessage();
     void sendMessage(const std::string& message);
     void sendMessage(int socket, const Json::Value& message);
@@ -85,7 +87,6 @@ private:
     void sendJoinAckToServer(std::string jt);
     
     void handleServerMessages(const std::string& message);
-    std::string receivePeerMessage(int socket);
     std::string readFromSock(int socket);
 public:
     NetworkManager(MembershipList& list, 

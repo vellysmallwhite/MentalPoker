@@ -15,6 +15,7 @@ class PokerServer:
         self.lock = threading.Lock()
         self.pending_joins = {}
         self.acks = defaultdict(set)
+        self.clients = {}  # Add this line to initialize the clients dictionary
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.debug = True  # Debug flag
@@ -55,6 +56,8 @@ class PokerServer:
                     continue  # Continue to the next iteration
 
                 client_id = message.get('client_id', 'Unknown')
+                if client_id:
+                    self.clients[client_id] = client # Store the client socket
                 self.debug_print(f"Received message from {client_id}: {message}")
                 response = self.process_message(message)
 
@@ -117,7 +120,7 @@ class PokerServer:
                 return response
             elif cmd == 'JOIN_ACK':
                 self.debug_print(f"Handling JOIN_ACK from client {client_id}")
-                self.handle_join_ack(client_id, message.get('room_id'))
+                self.handle_join_ack(client_id, message.get('join_id'))
                 return {'status': 'ack_received'}
             
 
@@ -189,6 +192,49 @@ class PokerServer:
                 'members': current_members
             }
 
+    def handle_join_ack(self, client_id, join_id):
+        with self.lock:
+            # Validate the join_id
+            if join_id not in self.pending_joins:
+                self.debug_print(f"Invalid or unknown join_id: {join_id}")
+                return
+
+            pending_join = self.pending_joins[join_id]
+            room_id = pending_join['room_id']
+            new_member_id = pending_join['client_id']
+
+            # Record the acknowledgment
+            self.acks[join_id].add(client_id)
+
+            # Get the current members excluding the new member
+            room = self.rooms[room_id]
+            current_members = [m['hostname'] for m in room['members'] if m['hostname'] != new_member_id]
+
+            # Check if all current members have acknowledged
+            if self.acks[join_id] == set(current_members):
+                # All acknowledgments received
+                # Add the new member to the room
+                room['members'].append({'hostname': new_member_id})
+                room['status'] = 'available'  # Reset room status
+
+                # Notify all members, including the new member
+                response = {
+                    'status': 'success',
+                    'message': f"Successfully joined room {room_id}",
+                    'members': [m['hostname'] for m in room['members']]
+                }
+                for member in room['members']:
+                    member_id = member['hostname']
+                    member_socket = self.clients.get(member_id)
+                    if member_socket:
+                        self.send_message(member_socket, response)
+                
+                self.debug_print(f"Current members in room {room_id}: {[m['hostname'] for m in room['members']]}")
+
+
+                # Cleanup
+                del self.pending_joins[join_id]
+                del self.acks[join_id]
 
     def handle_list(self, room_id):
         with self.lock:

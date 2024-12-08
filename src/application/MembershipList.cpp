@@ -1,6 +1,8 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <array>  // Include the array header
+
 #include <algorithm>  // Add this for std::find
 #include "MembershipList.h"
    
@@ -10,10 +12,12 @@
         return members;
     }
 
-    void MembershipList::addMember(const std::string& member) {
+    void MembershipList::addMember(const std::string& member,int index) {
         std::lock_guard<std::mutex> lock(mtx);
         if (std::find(members.begin(), members.end(), member) == members.end()) {
             members.push_back(member);
+            table[index]=member;
+            
         }
     }
 
