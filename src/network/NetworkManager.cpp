@@ -64,24 +64,35 @@ void NetworkManager::receiveServerMessage() {
     }
 
     fd_set readfds;
+    struct timeval timeout;
 
     while (connected) {
         FD_ZERO(&readfds);
         FD_SET(serverSocket, &readfds);
 
-        // No timeout; select will block until data is available
-        int selectResult = select(serverSocket + 1, &readfds, nullptr, nullptr, nullptr);
+        // Set timeout to 5 seconds
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+
+        int selectResult = select(serverSocket + 1, &readfds, nullptr, nullptr, &timeout);
 
         if (selectResult < 0) {
             if (errno == EINTR) {
+                std::cerr << "select() interrupted by signal, retrying..." << std::endl;
                 continue;  // Interrupted by signal, retry
             }
-            std::cerr << "Error in select: " << strerror(errno) << std::endl;
+            continue;
+            std::cerr << "Error in select: " << strerror(errno) << " (errno: " << errno << ")" << std::endl;
             connected = false;
             break;
+        } else if (selectResult == 0) {
+            // Timeout occurred
+            //std::cerr << "select() timeout, no data available" << std::endl;
+            continue;
         }
 
         if (FD_ISSET(serverSocket, &readfds)) {
+            //std::cout << "I heard it once receiveserver " << std::endl;
             try {
                 std::string tempRead = readFromSock(serverSocket);
                 if (!tempRead.empty()) {
@@ -119,6 +130,7 @@ NetworkManager::NetworkManager(MembershipList& list,
        serverSocket(-1),
       nodeId(nid),
       connected(false),
+      
       io_context(),
       acceptor(io_context, boost::asio::ip::tcp::endpoint(
           boost::asio::ip::tcp::v4(), port + nid)) {
@@ -126,8 +138,21 @@ NetworkManager::NetworkManager(MembershipList& list,
 }
 
 NetworkManager::~NetworkManager() {
-    if (connected) {
+    //std::cout << "Destructor called" << std::endl;
+    
+    if (receiverThread.joinable()) {
+        connected = false;
+        receiverThread.join();
+    }
+
+    if (ioThread.joinable()) {
+        io_context.stop();
+        ioThread.join();
+    }
+
+    if (serverSocket >= 0) {
         close(serverSocket);
+        std::cout << "Socket closed in destructor" << std::endl;
     }
 }
 
@@ -143,9 +168,14 @@ void NetworkManager::start() {
     joinMsg["client_id"] = clientId;
     
     sendMessage(joinMsg.toStyledString());
+    ioThread=std::thread([this]() {io_context.run();});
+
     
-    std::thread msgThread(&NetworkManager::receiveServerMessage, this);
-    msgThread.detach();
+    receiverThread = std::thread(&NetworkManager::receiveServerMessage, this);
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(100));
+    }
+
 }
 
 void NetworkManager::handleServerMessages(const std::string& message) {
@@ -153,6 +183,8 @@ void NetworkManager::handleServerMessages(const std::string& message) {
             try {
         Json::Value root;
         Json::Reader reader;
+        
+
         
         if (reader.parse(message, root)) {
             std::string status = root["status"].asString();
@@ -168,10 +200,10 @@ void NetworkManager::handleServerMessages(const std::string& message) {
             }
 
             if (status == "pending") {
-                std::string joinId = root["join_id"].asString();
+                joinId = root["join_id"].asString();
                 // Start handshake with each member
                 for (const auto& member : root["members"]) {
-                    startPeerHandshake(member.asString());
+                    establishPeerConnection(member.asString(),joinId);
                 }
             }
             else if (status == "success") {
@@ -196,31 +228,24 @@ void NetworkManager::setupAsyncListener() {
 }
 
 void NetworkManager::startRead(std::shared_ptr<boost::asio::ip::tcp::socket> socket) {
-    auto buffer = std::make_shared<std::vector<char>>(1024);
-    socket->async_read_some(
-        boost::asio::buffer(*buffer),
-        [this, socket, buffer](
-            const boost::system::error_code& error,
-            std::size_t bytes_transferred
-        ) {
-            if (!error) {
-                try {
-                    // Process received data
-                    std::string message(buffer->data(), bytes_transferred);
-                    handlePeerEvent(socket->native_handle());
-                    
-                    // Continue reading
-                    startRead(socket);
-                } catch (const std::exception& e) {
-                    std::cerr << "Error processing message: " << e.what() << std::endl;
-                    close(socket->native_handle());
+    auto buffer = std::make_shared<boost::asio::streambuf>();
+    boost::asio::async_read_until(*socket, *buffer, '\n',
+        [this, socket, buffer](const boost::system::error_code& ec, std::size_t bytesTransferred) {
+            if (!ec) {
+                std::istream is(buffer.get());
+                std::string message;
+                std::getline(is, message);
+
+                if (!message.empty()) {
+                    processPeerMessage(socket, message);
                 }
+
+                // Continue reading from the socket
+                startRead(socket);
             } else {
-                // Handle error cases
-                if (error != boost::asio::error::operation_aborted) {
-                    std::cerr << "Read error: " << error.message() << std::endl;
-                    close(socket->native_handle());
-                }
+                std::cerr << "Error reading from peer: " << ec.message() << std::endl;
+                // Handle disconnection
+                removePeerConnection(socket);
             }
         });
 }
@@ -301,7 +326,7 @@ void NetworkManager::handlePendingConnection(PendingConnection& pending) {
             } else if (type == "WELCOME") {
                 handleWelcome(pending);
             } else {
-                processPeerMessage(pending.socket, msg);
+                //processPeerMessage(pending.socket, msg);
             }
         }
     } catch (const std::exception& e) {
@@ -373,39 +398,49 @@ std::string NetworkManager::receivePeerMessage(int socket) {
     return std::string(buffer.data(), length);
 }
 
-void NetworkManager::processPeerMessage(int socket, const std::string& msg) {
-    
-    try {
-        Json::Value root;
-        Json::Reader reader;
-        
-        if (!reader.parse(msg, root)) {
-            throw std::runtime_error("Failed to parse peer message");
-        }
-        
+void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const std::string& message) {
+    Json::Value root;
+    Json::CharReaderBuilder reader;
+    std::string errs;
+
+    std::istringstream s(message);
+    if (Json::parseFromStream(reader, s, &root, &errs)) {
         std::string type = root["type"].asString();
-        
-        // Handle different message types
-        if (type == "GAME_ACTION") {
-            // Process game action
-            int actionType = root["action"].asInt();
-            int playerId = root["player_id"].asInt();
+        std::string tempjoinId=root.get("join_id","").asString();
+        if (type == "HELLO") {
+            int peerId = root["node_id"].asInt();
             
-            // Forward to game engine or process directly
-            std::cout << "Received game action " << actionType 
-                      << " from player " << playerId << std::endl;
+
+
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                incomingPeers[peerId] = socket;
+            }
+
+            // Send WELCOME message
+            Json::Value welcomeMsg;
+            welcomeMsg["type"] = "WELCOME";
+            welcomeMsg["node_id"] = nodeId;
             
-        } else if (type == "CONSENSUS") {
-            // Handle consensus messages
-            // Forward to consensus module
+            sendJsonMessage(socket, welcomeMsg);
+            sendJoinAckToServer(tempjoinId);
+
+        } else if (type == "WELCOME") {
+            int peerId = root["node_id"].asInt();
+
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                outgoingPeers[peerId] = socket;
+            }
+
             
+
         } else {
-            throw std::runtime_error("Unknown message type: " + type);
+            // Handle other types of messages (e.g., game messages)
+            // processGameMessage(type, root);
         }
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error processing peer message: " << e.what() << std::endl;
-        removePendingConnection(socket);
+    } else {
+        std::cerr << "Failed to parse peer message: " << errs << std::endl;
     }
 }
 
@@ -432,51 +467,71 @@ void NetworkManager::removePendingConnection(int socket) {
     }
 }
 
-void NetworkManager::startPeerHandshake(const std::string& peerHostname) {
-    std::cout << "Starting handshake with peer: " << peerHostname << std::endl;
-    
-    // Create socket for peer connection
-    int peerSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (peerSocket < 0) {
-        std::cerr << "Failed to create peer socket" << std::endl;
-        return;
-    }
 
-    // Setup peer address
-    struct sockaddr_in peerAddr;
-    memset(&peerAddr, 0, sizeof(peerAddr));
-    peerAddr.sin_family = AF_INET;
-    peerAddr.sin_port = htons(serverPort + extractNodeId(peerHostname));
 
-    // Use Docker DNS to resolve hostname
-    struct hostent *peer = gethostbyname(peerHostname.c_str());
-    if (peer == NULL) {
-        std::cerr << "Failed to resolve peer hostname: " << peerHostname << std::endl;
-        close(peerSocket);
-        return;
-    }
-    memcpy(&peerAddr.sin_addr.s_addr, peer->h_addr, peer->h_length);
+void NetworkManager::sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const Json::Value& message) {
+    Json::StreamWriterBuilder writer;
+    std::string data = Json::writeString(writer, message);
+    data += "\n";  // Add newline delimiter
 
-    // Add to pending connections map
-    PendingConnection pending(peerSocket, true);  // true = outgoing connection
-    pending.peerHostname = peerHostname;
-    pending.startTime = std::chrono::steady_clock::now();
-    pending.addr = peerAddr;
-    
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-        pendingConnections[peerSocket] = pending;
-    }
-
-    // Send HELLO message
-    Json::Value hello;
-    hello["type"] = "HELLO";
-    hello["node_id"] = nodeId;
-    sendMessage(peerSocket, hello);
+    auto buffer = std::make_shared<std::string>(data);
+    boost::asio::async_write(*socket, boost::asio::buffer(*buffer),
+        [socket, buffer](const boost::system::error_code& ec, std::size_t) {
+            if (ec) {
+                std::cerr << "Error sending message to peer: " << ec.message() << std::endl;
+            }
+        });
 }
 
 
+void NetworkManager::removePeerConnection(std::shared_ptr<boost::asio::ip::tcp::socket> socket) {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    // Remove from incomingPeers
+    for (auto it = incomingPeers.begin(); it != incomingPeers.end(); ++it) {
+        if (it->second == socket) {
+            incomingPeers.erase(it);
+            std::cerr << "Removed incoming peer connection" << std::endl;
+            break;
+        }
+    }
+
+    // Remove from outgoingPeers
+    for (auto it = outgoingPeers.begin(); it != outgoingPeers.end(); ++it) {
+        if (it->second == socket) {
+            outgoingPeers.erase(it);
+            std::cerr << "Removed outgoing peer connection" << std::endl;
+            break;
+        }
+    }
+
+    // Optionally remove from membershipList
+    // membershipList.removeMember(peerId); // Implement this if needed
+}
+
+
+
+void NetworkManager::establishPeerConnection(const std::string& peerHostname,const std::string& joinId) {
+    auto socket = std::make_shared<boost::asio::ip::tcp::socket>(io_context);
+    boost::asio::ip::tcp::resolver resolver(io_context);
+    std::cerr << "establishing connection to:" << peerHostname << ": " << << std::endl;
+
+    int peerPort = serverPort + extractNodeId(peerHostname);  // Assuming port offset by node ID
+    auto endpoints = resolver.resolve(peerHostname, std::to_string(peerPort));
+
+    boost::asio::async_connect(*socket, endpoints,
+        [this, socket, peerHostname](const boost::system::error_code& ec, const boost::asio::ip::tcp::endpoint&) {
+            if (!ec) {
+                std::cout << "Connected to peer " << peerHostname << std::endl;
+                handleHandshake(socket, true);  // Outgoing connection
+            } else {
+                std::cerr << "Failed to connect to peer " << peerHostname << ": " << ec.message() << std::endl;
+            }
+        });
+}
+
 int NetworkManager::extractNodeId(const std::string& hostname) {
+    
     // Remove .local suffix if present
     std::string name = hostname;
     size_t dotPos = name.find(".local");
@@ -499,6 +554,43 @@ int NetworkManager::extractNodeId(const std::string& hostname) {
         std::cerr << "Failed to parse node ID from hostname: " << hostname << std::endl;
         return -1;
     }
+}
+
+void NetworkManager::acceptPeerConnections() {
+    auto socket = std::make_shared<boost::asio::ip::tcp::socket>(io_context);
+    acceptor.async_accept(*socket, [this, socket](const boost::system::error_code& ec) {
+        if (!ec) {
+            std::cout << "Accepted connection from peer." << std::endl;
+            handleHandshake(socket, false);  // Incoming connection
+        } else {
+            std::cerr << "Accept error: " << ec.message() << std::endl;
+        }
+        // Continue accepting new connections
+        acceptPeerConnections();
+    });
+}
+
+void NetworkManager::handleHandshake(std::shared_ptr<boost::asio::ip::tcp::socket> socket, bool isOutgoing) {
+    if (isOutgoing) {
+        // Send HELLO message
+        Json::Value helloMsg;
+        helloMsg["type"] = "HELLO";
+        helloMsg["node_id"] = nodeId;
+        helloMsg["join_id"]=joinId;
+        sendJsonMessage(socket, helloMsg);
+        return;
+    }
+
+    // Start reading messages from the peer
+    startRead(socket);
+}
+
+void NetworkManager::sendJoinAckToServer(std::string jt) {
+    Json::Value ackMsg;
+    ackMsg["command"] = "JOIN_ACK";
+    ackMsg["client_id"] = clientId;
+    ackMsg["join_id"]=jt;
+    sendMessage(ackMsg.toStyledString());
 }
 
 // Rest of the method implementations...

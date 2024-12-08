@@ -14,3 +14,66 @@ Bi-directional communication through established sockets
 
 When a person is new founded game he need to update the seat concensus.
 Where he also determine his predecessor and successor.
+
+
+
+Here's a clearer, more structured description of the distributed gameplay for your mental poker game:
+
+Distributed Poker Game Architecture:
+
+1. Room Creation and Joining
+   - Client connects to the central server
+   - Server maintains a list of available game rooms and their members
+   - Client requests and receives:
+     * List of available rooms to join
+     * Peer contact information for the selected room
+
+2. Pre-Game Synchronization
+   - Players join the table
+   - Synchronization process begins when all players are ready
+   - Card Preparation Phases:
+     a) Agree on card encoding method
+     b) Players signal readiness to encrypt
+     c) Encrypt and shuffle cards
+     d) Use Byzantine Fault Tolerance (BFT) consensus to agree on shuffled deck encryption
+
+3. Card Distribution Phase
+   - Decryption Round:
+     * Each player receives and decrypts their cards in a circular process
+     * Player encrypts card and passes to the next player
+     * Player signals "ready" after successfully receiving and decrypting their own cards
+     * Continue until all players have their cards and are ready
+
+4. Gameplay Phases
+   a) Action Phase (rotating through player seats)
+      - Current player chooses to:
+        * Place a bet
+        * Fold
+      - Player broadcasts action
+      - Other players use consensus to agree on the action
+      - Move to next player's turn
+
+   b) Betting Round
+      - Players decide to:
+        * Raise
+        * Call
+        * Fold
+      - Consensus required for each action
+
+   c) Winner Determination
+      - All players reveal their cards
+      - Use consensus algorithm to agree on the winner
+
+Key Design Principles:
+- Distributed architecture
+- Consensus-driven decision-making
+- Secure card handling through encryption
+- Transparent and verifiable game progression
+
+This structure ensures a fair, secure, and synchronized multiplayer poker experience across a distributed network.
+
+
+Here is the structure of my project, rephrase to make it more clear : structure of distributed gameplay. My client will start by asking server(which keep the list of rooms and room members) for rooms to join, and get the list of peers to contact with.After enough people join a table and everyone is ready, people will start a game by synchronizing with all the peers. The game will be a simple mental poker game with following phase: agreeing on card encoding->ready to encrypt->encrypt and shuffle->agreeing on shuffle encryption deck using bft consensus module->each player request to decrypt his own card(deryption phase, a player will accept encrypted card from his predecessor and encrypt it then pass it to his succesor ) and say ready when he received his own encrypted cards and successfully decrypted it. -> keep helping others to encrypt until everyone is ready -> when every one is ready, procced to game phase(the game phase is 3 phase:(action start as seat1).Each player do an action- place bet or fold. And broadcast his action to everyone(propose for a commit), everyone has to first do an concensus to agree on this action before it is commited. After the current action has been done, all player will move to the next phase of game state( waiting for next player in the seat for action).2. everyone raise call or fold. 3. When there is no more action to be done. Everyone will enter a calculate winner phase, where everyone will show his card and everyone will agree on a winner using concensus algorithmn.
+
+
+Also add a table array in the gameEngine or membershiplist that call getMembers for update. talbe is of size 12,each entry is an player structure , player has the following status: stack size, game state(game num,sequence num, last action, previous block hash),join time,.(design me the completed data structure). 

@@ -40,20 +40,19 @@ class PokerServer:
 
     def handle_client(self, client, addr):
         client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        client_id = None
         try:
             while True:
                 data = self.receive_message(client)
-                if not data:
-                    self.debug_print(f"Client {addr} disconnected")
-                    break
+                if data is None:
+                    #self.debug_print(f"Client  sent no data.")
+                    continue  # Exit the loop and close the connection
 
                 try:
                     message = json.loads(data)
                 except json.JSONDecodeError:
-                    self.debug_print(f"Received invalid JSON from {addr}")
+                    self.debug_print(f"Received invalid JSON from {addr}: {data}")
                     self.send_message(client, {'status': 'error', 'message': 'Invalid JSON'})
-                    continue
+                    continue  # Continue to the next iteration
 
                 client_id = message.get('client_id', 'Unknown')
                 self.debug_print(f"Received message from {client_id}: {message}")
@@ -63,14 +62,12 @@ class PokerServer:
                     self.send_message(client, response)
                 except (BrokenPipeError, ConnectionResetError) as e:
                     self.debug_print(f"Error sending to {addr}: {e}")
-                    break
+                    break  # Exit the loop and close the connection
         except Exception as e:
-            self.debug_print(f"Error handling client {client_id} at {addr}: {e}")
+            self.debug_print(f"Unexpected error with client {addr}: {e}")
         finally:
             client.close()
-            if client_id:
-                self.handle_client_disconnect(client_id)
-            self.debug_print(f"Connection with {addr} closed")
+            self.debug_print(f"Closed connection with {addr}")
 
     def receive_message(self, client):
         try:
@@ -100,9 +97,9 @@ class PokerServer:
 
     def send_message(self, client, message):
         try:
-            data = json.dumps(message)
-            length = len(data).to_bytes(4, 'big')
-            client.sendall(length + data.encode('utf-8'))
+            data = json.dumps(message).encode('utf-8')
+            length = len(data).to_bytes(4, byteorder='big')
+            client.sendall(length + data)
         except socket.error as e:
             self.debug_print(f"Socket error during send: {e}")
             raise
@@ -118,6 +115,11 @@ class PokerServer:
                 response = self.handle_join(room_id, client_id)
                 self.debug_print(f"JOIN response: {response}")
                 return response
+            elif cmd == 'JOIN_ACK':
+                self.debug_print(f"Handling JOIN_ACK from client {client_id}")
+                self.handle_join_ack(client_id, message.get('room_id'))
+                return {'status': 'ack_received'}
+            
 
             elif cmd == 'LIST':
                 self.debug_print(f"Handling LIST command from client {client_id}")
@@ -141,14 +143,52 @@ class PokerServer:
             return {'status': 'error', 'message': str(e)}
 
     def handle_join(self, room_id, client_id):
-        with self.lock:
+            # Case 1: New Room
             if room_id not in self.rooms:
-                self.rooms[room_id] = {'members': []}
-            if not any(member['hostname'] == client_id for member in self.rooms[room_id]['members']):
-                self.rooms[room_id]['members'].append({'hostname': client_id})
-            else:
-                return {'status': 'error', 'message': f"{client_id} already in {room_id}"}
-        return {'status': 'success', 'message': f"{client_id} joined {room_id}"}
+                self.rooms[room_id] = {
+                    'status': 'available',
+                    'members': [{
+                        'id': client_id,
+                        'hostname': f"{client_id}"
+                    }],
+                    'created_at': time.time()
+                }
+                return {
+                    'status': 'success',
+                    'message': 'Created new room',
+                    'room_id': room_id,
+                    'members': []
+                }
+
+            # Case 2: Existing Room
+            room = self.rooms[room_id]
+            if room['status'] == 'busy':
+                return {
+                    'status': 'error',
+                    'message': 'Room is busy'
+                }
+
+            # Get current members
+            current_members = [m['hostname'] for m in room['members']]
+            
+            # Mark room as busy during join process
+            room['status'] = 'busy'
+            
+            # Create pending join operation
+            join_id = str(uuid.uuid4())
+            self.pending_joins[join_id] = {
+                'room_id': room_id,
+                'client_id': client_id,
+                'created_at': time.time()
+            }
+
+            return {
+                'status': 'pending',
+                'join_id': join_id,
+                'message': 'Waiting for member acknowledgments',
+                'members': current_members
+            }
+
 
     def handle_list(self, room_id):
         with self.lock:
