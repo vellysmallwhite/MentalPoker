@@ -1,3 +1,27 @@
+###############Instruction on how to run the code:
+#####################################################################
+Make the Script Executable:
+
+Use the chmod +x command to make the test1.sh script executable:
+chmod +x ./test1.sh
+Run the Script:
+./tes1.sh
+
+What is does:
+Server Initialization:
+
+The server (server.py) is started, which listens for incoming client connections and manages rooms and members.
+Client Initialization:
+
+The client application (main.cpp) is started, which initializes the NetworkManager and connects to the server.
+The NetworkManager handles peer connections, handshakes, and communication with the server.
+Peer-to-Peer Communication:
+
+Clients establish peer-to-peer connections, perform handshakes, and communicate with each other.
+The server coordinates the joining process and ensures that all peers are properly connected.
+
+
+
 
 Network flowchart.
 graph TD
