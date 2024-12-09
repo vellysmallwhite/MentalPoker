@@ -22,44 +22,14 @@ The server coordinates the joining process and ensures that all peers are proper
 
 
 
-
-Network flowchart.
-graph TD
-    A[ListenSocket] -->|Accept New Connection| B[Create PendingConnection]
-    B -->|Start Handshake| C[Wait for HELLO/WELCOME]
-    C -->|Handshake Complete| D[Add to Active Peers]
-    D -->|Epoll Events| E[Handle Peer Messages]
+General flow prompt:
+How 
+The game rule is this:
+The game start, (encryption phase, which will end by all players agree on the last player's encrypted deck with consens algorithmn), in this phase:the player at the first seat [membershipList.getFirstPlayer() ]generate a pile of cards and encrypted it and pass it down to his predecessor (each player will have a full table view,so that he can access the membershipList.getsuccessor(), also he knew the last player membershiplist.getLastPlayer()).
+whenever a player receives a message from networkmanager that has status (shuffle and encrypt) , he will check if the one send him this is his predecessor, if so he will accept it and  pass it down to his successor. 
 
 
-Incoming connections arrive at ListenSocket
-Handshake establishes peer identity and current gamestate
-Messages processed through epoll events
-Bi-directional communication through established sockets
-
-When a person is new founded game he need to update the seat concensus.
-Where he also determine his predecessor and successor.
-
-
-
-Here's a clearer, more structured description of the distributed gameplay for your mental poker game:
-
-Distributed Poker Game Architecture:
-
-1. Room Creation and Joining
-   - Client connects to the central server
-   - Server maintains a list of available game rooms and their members
-   - Client requests and receives:
-     * List of available rooms to join
-     * Peer contact information for the selected room
-
-2. Pre-Game Synchronization
-   - Players join the table
-   - Synchronization process begins when all players are ready
-   - Card Preparation Phases:
-     a) Agree on card encoding method
-     b) Players signal readiness to encrypt
-     c) Encrypt and shuffle cards
-     d) Use Byzantine Fault Tolerance (BFT) consensus to agree on shuffled deck encryption
+The game rule is this:The game start, (encryption phase, which will end by all players agree on the last player's encrypted deck with consens algorithmn), in this phase:the player at the first seat [membershipList.getFirstPlayer() ]generate a pile of cards and encrypted it and pass it down to his predecessor (each player will have a full table view,so that he can access the membershipList.getPredesessor(), also he knew the last player membershiplist.getLastPlayer()).The game flow is like this that, whenever a player is connect has roommember > 2. He will ask all the member if they are prepare, to start the game. If so, they start it. Like for this poker game it is simple, it should be structure with hand(which means a whole round of game, from start to showndon). Each hand will have gamephase, and a commitEntry. 
 
 3. Card Distribution Phase
    - Decryption Round:

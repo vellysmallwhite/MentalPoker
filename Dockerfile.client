@@ -6,6 +6,7 @@ RUN apt-get update && \
     apt-get install -y \
     libjsoncpp-dev \
     libboost-system-dev \
+    libgmp-dev \ 
     libboost-thread-dev &&\
     rm -rf /var/lib/apt/lists/*
 
@@ -13,6 +14,8 @@ WORKDIR /MentalPoker
 
 # Copy only necessary files
 COPY src/ src/
+COPY src/key /src/key  
+
 
 # Compile main.cpp directly with dependencies
 RUN g++ -std=c++17 -o poker \
@@ -20,10 +23,14 @@ src/main.cpp \
 src/network/NetworkManager.cpp \
 src/application/GameEngine.cpp \
 src/application/MembershipList.cpp \
--pthread -ljsoncpp -lboost_system -lboost_thread \
+src/application/EventQueue.cpp \
+src/utils/CryptoUtils.cpp \  
+-pthread -ljsoncpp -lboost_system -lboost_thread -lgmp -lgmpxx \  
 -I/usr/include/jsoncpp \
 -I./src/network \
--I./src/application
+-I./src/application \
+-I./src/utils  
+
 
 # Run the program
 CMD ["./poker"]

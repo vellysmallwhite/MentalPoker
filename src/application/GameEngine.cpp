@@ -1,30 +1,44 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include "EventQueue.h"
 #include "GameEngine.h"
 #include "MembershipList.h"
+#include "../utils/CryptoUtils.h"
 #include <algorithm>
 #include <random>
 #include <chrono>
+#include <mutex>
+#include <queue>
 
-GameEngine::GameEngine(MembershipList& list) 
+#include <iostream>
+#include <gmpxx.h>
+
+
+
+GameEngine::GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQueue,int id,NetworkManager& networkManager) 
     : membershipList(list),
-      currentState{GamePhase::SETUP, 1} {
-    assignSeats();
+    currentState{GamePhase::SETUP, id,1000} ,
+    eventQueue_(eventQueue),
+    mySeatNumber(id) ,
+    networkManager_(networkManager) {
+    currentState.playerStacks.fill(1000);
+    
+    try {
+        readSharedModulus(p, q, n, phi_n);
+        std::cout << "Shared modulus n read successfully." << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error reading shared modulus: " << e.what() << std::endl;
+        // Handle error appropriately (e.g., exit or retry)
+        return;
+    }
+    myKeyPair.n=n;
+
+    generateSRAKeyPair( n,phi_n, myKeyPair);
+
 }
 
-void GameEngine::assignSeats() {
-    auto members = membershipList.getMembers();
-    for (const auto& member : members) {
-        int seatNumber = extractNodeId(member);
-        if (seatNumber > 0 && seatNumber <= TABLE_SIZE) {
-            seats[seatNumber] = member;
-            if (member == std::getenv("HOSTNAME")) {
-                mySeatNumber = seatNumber;
-            }
-        }
-    }
-}
+
 
 int GameEngine::extractNodeId(const std::string& member) {
     // Remove .local suffßix if present
@@ -56,50 +70,38 @@ int GameEngine::extractNodeId(const std::string& member) {
 }
 
 void GameEngine::runGame() {
+
     while (true) {
-        switch (currentState.phase) {
-            case GamePhase::SETUP:
-                if (isReadyToStart()) {
-                    currentState.phase = GamePhase::CARD_ENCODING;
-                }
-                break;
-
-            case GamePhase::BETTING_ROUND_1:
-            case GamePhase::BETTING_ROUND_2:
-            case GamePhase::BETTING_ROUND_3:
-                if (isMyTurn()) {
-                    // Implement betting logic
-                    PlayerAction myAction = PlayerAction::CALL;  // Example
-                    if (proposeAction(myAction)) {
-                        // Action accepted by consensus
-                        currentState.currentSeat = (currentState.currentSeat % TABLE_SIZE) + 1;
-                    }
-                }
-                break;
-
-            case GamePhase::SHOWDOWN:
-                if (isMyTurn()) {
-                    // Show cards and determine winner
-                    int winner = findWinner();
-                    CommitEntry entry{
-                        static_cast<int>(commitLog.size()),
-                        std::getenv("HOSTNAME"),
-                        PlayerAction::NONE,
-                        GamePhase::COMPLETE,
-                        winner
-                    };
-                    if (achieveConsensus(entry)) {
-                        currentState.phase = GamePhase::COMPLETE;
-                    }
-                }
-                break;
-
-            default:
-                break;
+        GameEvent curEvent;
+        while (eventQueue_->tryPop(curEvent)) {
+            handleEvent(curEvent);
         }
+        
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
+
+void GameEngine::handleEvent(const GameEvent &event) {
+    switch (event.type) {
+        case GameEvent::PLAYER_JOINED:
+            processPlayerJoin(event);
+            break;
+        case GameEvent::REQ_ENCRYPT:
+            processEncryptReq(event);
+            break;
+
+        // case GameEvent::DEAL_CARD:
+        //     processDealCard(event);
+        //     break;
+        // case GameEvent::PROPOSE_CONSENSUS:
+        //     proposeConsensus(event);
+        //     break;
+        // case GameEvent::CONSENSUS_RESULT:
+        //     applyConsensusResult(event);
+        //     break;
+    }
+}
+
 
 bool GameEngine::proposeAction(PlayerAction action, int betAmount) {
     CommitEntry entry{
@@ -123,32 +125,93 @@ bool GameEngine::proposeAction(PlayerAction action, int betAmount) {
     return false;
 }
 
+
+void GameEngine::processPlayerJoin(const GameEvent &event) {
+    //std::cout << "event of a player join occured" << std::endl;
+
+
+    if (isReadyToStart() && currentState.phase == GamePhase::SETUP) {
+        currentState.phase = GamePhase::ENCRYPTION;
+        std::cout << "All players are ready. Changing game phase to ENCRYPTION." << std::endl;
+        
+        if (mySeatNumber==membershipList.getFirstPlayerIndex()){
+            createAndEncryptDeck();
+            Json::Value message;
+            message["type"] = "REQ_ENCRYPT";
+            message["node_id"] = mySeatNumber;
+
+        // Serialize the encrypted deck
+            Json::Value encryptedDeckJson(Json::arrayValue);
+            for (const auto& card : encryptedDeck) {
+            encryptedDeckJson.append(card.get_str());
+            }
+            message["encrypted_deck"] = encryptedDeckJson;
+
+            // Send the message to the next player
+            
+
+            networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);  // send Message
+
+
+        }
+
+    }
+}
+
+void GameEngine::processEncryptReq(const GameEvent &event) {
+    // Encrypt the deck with this player's public key
+    if (event.playerId!=membershipList.getPredesessorIndex(mySeatNumber) || currentState.phase!=GamePhase::ENCRYPTION) {
+        //std::cout << "event.playerId is :" <<event.playerId <<std::endl;
+
+        return;
+    }
+
+    if (mySeatNumber==membershipList.getLastPlayerIndex()) {
+        currentState.phase=GamePhase::ENC_CONSENNSUS;
+        encryptDeck(event.encodedDeck, encryptedDeck, myKeyPair.publicKey, n);
+        shuffleDeck(encryptedDeck);
+
+        printEncodedDeck(encryptedDeck);
+        //std::cout << "Supposed to print deck here." << std::endl;
+        //std::cout << "event.playerId is :" << event.playerId << " and the thing is:" << (mySeatNumber == membershipList.getLastPlayerIndex()) << std::endl;
+
+
+
+        return;
+    }
+    
+    encryptDeck(event.encodedDeck, encryptedDeck, myKeyPair.publicKey, n);
+    shuffleDeck(encryptedDeck);
+
+    // Construct the JSON message
+    Json::Value message;
+    message["type"] = "REQ_ENCRYPT";
+    message["node_id"] = mySeatNumber;
+
+    // Serialize the encrypted deck
+    Json::Value encryptedDeckJson(Json::arrayValue);
+    for (const auto& card : encryptedDeck) {
+        encryptedDeckJson.append(card.get_str());
+    }
+    message["encrypted_deck"] = encryptedDeckJson;
+
+    // Send the message to the next player
+
+    networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);
+}
+
 bool GameEngine::isReadyToStart() {
     std::vector<std::string> members = membershipList.getMembers();
     
     // Check if we have at least 2 players but not more than TABLE_SIZE
-    if (members.size() < 2 || members.size() > TABLE_SIZE) {
+    if (members.size() <=2 || members.size()>3) {
         std::cout << "Not enough players or too many players. Current count: " 
                   << members.size() << std::endl;
         return false;
     }
     
     // Check if all seats are properly assigned
-    for (const auto& member : members) {
-        int seatNumber = extractNodeId(member);
-        if (seatNumber < 1 || seatNumber > TABLE_SIZE) {
-            std::cout << "Invalid seat number for member: " << member << std::endl;
-            return false;
-        }
-        
-        // Verify seat is assigned in seats map
-        if (seats.find(seatNumber) == seats.end()) {
-            std::cout << "Seat " << seatNumber << " not assigned" << std::endl;
-            return false;
-        }
-    }
-    
-    std::cout << "Game ready to start with " << members.size() << " players" << std::endl;
+
     return true;
 }
 
@@ -248,4 +311,41 @@ int GameEngine::findWinner() {
     
     std::cout << "Winner is player " << winner << " with bet " << maxBet << std::endl;
     return winner;
+}
+
+void GameEngine::createAndEncryptDeck() {
+    // Generate and shuffle the deck
+    deck = generateDeck();
+    
+
+    // Encode the entire deck
+    encodeDeck(deck, encodedDeck);
+    shuffleDeck(encodedDeck);
+
+    // Encrypt the encoded deck with this player's public key
+    encryptDeck(encodedDeck, encryptedDeck, myKeyPair.publicKey, n);
+    currentState.encryptedDeck=encryptedDeck;
+
+
+    // The encryptedDeck can now be passed to the next player
+    // Network communication code would go here
+}
+
+void GameEngine::decryptAndDecodeHand() {
+    // Decrypt the encrypted deck with this player's private key
+    EncodedDeck decryptedDeck;
+    decryptDeck(encryptedDeck, decryptedDeck, myKeyPair.privateKey, n);
+
+    // Decode the decrypted values to get the cards
+    std::vector<Card> decryptedCards;
+    decodeDeck(decryptedDeck, decryptedCards);
+
+    // Assign cards to player's hand
+    if (decryptedCards.size() >= 2) {
+        // Assuming dealing the top two cards
+        //myHand.card1 = decryptedCards[0];
+        //myHand.card2 = decryptedCards[1];
+    } else {
+        std::cerr << "Not enough cards to deal." << std::endl;
+    }
 }

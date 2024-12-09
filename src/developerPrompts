@@ -1,0 +1,9 @@
+Class design:
+
+try your best to provide the project structure for me. Now I have implemented a network manager that which can call a start() function. This start() function does the following things  : keep listening and accepting the incomingconnections with io_context , when connection established, startRead() is called which is an asynchronous function keep listening and process message on that incoming socket. Whenever an message is proccess, this message would potential change the state of the game. But this processmessage is a private function. And currently my understanding for this project is that I 'm writte a peer to peer poker game. So I writte a game code,and need to run game loop also. So how can the new processed message in the private networkmanager function trigger new change in game state(which run in a function of gameEngine class 's run function which runs a gameloop. Currently, I'm thinking that I create a the network manager class and run the starts() function to initialized networkconnection and keep listening on new message.  And maybe when a message arrive it needs game state's data in that private process peermessage function to determine what is the next step. So how do you design to solve this issue. do you make a lot of public variables, and most importantly, how the game loop proceed with those currently private information?
+
+event design:
+So are u meaning that 2 class will share a queue variable, which is also a class. And remember, this event should also include a lot of game information like what is the encrypted card, what other peers is trying to do. And also think about how game module interact with consensus model. Because the game will obtain card information from the event, and when certain event is triggered, game will need to run consensus algorithmn to confirm before commiting to the state change of the game.
+
+
+

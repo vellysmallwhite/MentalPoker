@@ -18,6 +18,16 @@ public:
     std::vector<std::string> getMembers();
     void addMember(const std::string& member,int index);
     bool isMember(const std::string& member);
+    std::string getPredesessor(int index);
+    std::string getSusessor(int index);
+    int getPredesessorIndex(int index);
+    int getSusessorIndex(int index);
+    std::string getFirstPlayer();
+    std::string getLastPlayer();
+    int getFirstPlayerIndex();     // New method
+    int getLastPlayerIndex();  
+    
+    
 };
 
 

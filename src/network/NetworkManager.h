@@ -5,10 +5,12 @@
 #include <string>
 #include <map>
 #include <mutex>
+#include <queue>
 #include <netinet/in.h>
 #include <boost/asio.hpp>
 #include <json/json.h>
 #include "MembershipList.h"
+#include "EventQueue.h"
 
 
 
@@ -80,7 +82,7 @@ private:
     void removePeerConnection(std::shared_ptr<boost::asio::ip::tcp::socket> socket);
 
     void acceptPeerConnections();
-    void establishPeerConnection(const std::string& peerHostname,const std::string& joinId);
+    void establishPeerConnection(const std::string& peerHostname,bool isHello);
     void handleHandshake(std::shared_ptr<boost::asio::ip::tcp::socket> socket, bool isOutgoing);
     void processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const std::string& message);
     void sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const Json::Value& message);
@@ -91,11 +93,17 @@ private:
 public:
     NetworkManager(MembershipList& list, 
                   const std::string& id,
-                  const std::string& host, 
+                  const std::string& host,
+                  std::shared_ptr<EventQueue> eventQueue, 
                   int port = 8080,
-                  int nid = 0);
+                  int nid = 0
+                );
     ~NetworkManager();
     void start();
+    std::shared_ptr<EventQueue> eventQueue_;
+    void sendPeerMessage(const std::string& peerHostname, const Json::Value& message);
+
+
     static int extractNodeId(const std::string& hostname);
 };
 
