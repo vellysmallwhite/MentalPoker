@@ -6,12 +6,13 @@
 // Define the GameEvent struct
 struct GameEvent {
     enum Type { PLAYER_JOINED, PLAYER_LEFT, REQ_ENCRYPT,
-    PLAYER_BET, DEAL_CARD, GAME_START,
-    REQ_TO_SHUFFLE_ENCRYP,PROPOSE_CONSENSUS, CONSENSUS_RESULT} type;
+    CONSENSUS_PREVOTE,CONSENSUS_PRECOMMIT,CONSENSUS_PROPOSAL} type;
     EncodedDeck encodedDeck;
 
     int playerId;
     int amount; 
+    std::string vote;
+    std::string proposal;
 };
 
 // Declare the EventQueue class

@@ -3,50 +3,54 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <chrono>
-#include "../application/GameEngine.h"
+#include <mutex>
+#include <json/json.h>
+#include <unordered_map>
+
 
 enum class ConsensusStep {
-    PROPOSE,
+    NONE,
+    WAITING_FOR_PROPOSAL,
     PREVOTE,
-    PRECOMMIT
+    PRECOMMIT,
+    COMMIT
 };
 
 struct ConsensusState {
-    int height;              // Current consensus instance
-    int round;              // Current round number
-    ConsensusStep step;     // Current step
-    CommitEntry* proposal;   // Current proposal
-    std::map<int, bool> decisions;
-    CommitEntry* lockedValue;
-    int lockedRound;
-    CommitEntry* validValue;
-    int validRound;
+    ConsensusStep step;
+    std::string proposedValue; // The proposed encrypted deck as a serialized string
+    std::map<int, std::string> prevotes;   // Map of nodeId to vote value
+    std::map<int, std::string> precommits; // Map of nodeId to vote value
+    std::mutex mtx;
+    bool isProposer=false;
 };
 
 class Consensus {
-private:
-    ConsensusState state;
-    std::map<int, std::vector<std::string>> prevotes;
-    std::map<int, std::vector<std::string>> precommits;
-    int nodeId;
-    static const int TOTAL_VALIDATORS = 12;
-    static const int FAULT_TOLERANCE = (TOTAL_VALIDATORS - 1) / 3;
-
-    void startRound(int round);
-    bool isProposer(int height, int round) const;
-    bool validateProposal(const CommitEntry* entry) const;
-    void broadcastPrevote(int height, int round, const std::string& value);
-    void broadcastPrecommit(int height, int round, const std::string& value);
-    bool hasQuorum(const std::vector<std::string>& votes) const;
-    void scheduleTimeout(ConsensusStep step, int height, int round);
-
 public:
-    explicit Consensus(int id);
-    bool proposeValue(CommitEntry* entry);
-    void handleProposal(const CommitEntry* proposal, int height, int round);
-    void handlePrevote(int height, int round, const std::string& value, int fromId);
-    void handlePrecommit(int height, int round, const std::string& value, int fromId);
-    bool isDecided(int height) const;
-    CommitEntry* getDecision(int height) const;
+    ConsensusState state;
+
+    Consensus(int nodeId, int totalNodes, int faultTolerance);
+
+    // Methods to handle consensus phases
+    // These methods return whether a message needs to be broadcast
+    bool onProposalReceived(int proposerId, const std::string& proposal, Json::Value& messageToBroadcast);
+    bool onPrevoteReceived(int voterId, const std::string& vote, Json::Value& messageToBroadcast);
+    bool onPrecommitReceived(int voterId, const std::string& vote, Json::Value& messageToBroadcast);
+
+    bool hasConsensus() ;
+    std::string getConsensusValue() ;
+    void setQuorum(int q);
+    void setTotalNodes(int q);
+
+private:
+    int nodeId;
+    int totalNodes;
+    int faultTolerance;
+    int quorum;
+
+
+
+    // Helper methods
+    void resetState();
+    bool checkQuorum(const std::map<int, std::string>& votes) const;
 };

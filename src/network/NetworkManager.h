@@ -103,7 +103,7 @@ public:
     std::shared_ptr<EventQueue> eventQueue_;
     void sendPeerMessage(const std::string& peerHostname, const Json::Value& message);
 
-
+    void broadcastMessage(const Json::Value& message);
     static int extractNodeId(const std::string& hostname);
 };
 

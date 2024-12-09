@@ -4,6 +4,7 @@
 #include "../network/NetworkManager.h"
 #include "EventQueue.h"
 #include "MembershipList.h"
+#include "Consensus.h"
 #include <vector>
 #include <map>
 #include <queue>
@@ -14,15 +15,11 @@
 #include <iostream>  // Include array header
 #include <memory>    // Add this line
 
-
-
-
-
 enum class GamePhase {
     SETUP,
     
     ENCRYPTION,
-    ENC_CONSENNSUS,
+    ENC_CONSENSUS,
      DECRYPTION,
     BETTING_ROUND_1,
     BETTING_ROUND_2,
@@ -80,12 +77,11 @@ private:
     EncodedDeck encodedDeck;
     EncodedDeck encryptedDeck;
     std::vector<Card> deck;
-     NetworkManager& networkManager_;  // Reference to NetworkManager
-
+    NetworkManager& networkManager_;  // Reference to NetworkManager
+    Consensus consensus_;
 
     bool proposeAction(PlayerAction action, int betAmount = 0);
     bool validateAction(const CommitEntry& entry);
-    bool achieveConsensus(const CommitEntry& entry);
     void broadcastAction(const CommitEntry& entry);
     void updateGameState(const CommitEntry& entry);
     bool isMyTurn() const;
@@ -100,9 +96,9 @@ private:
     void createDeckEncrypt();
     void createAndEncryptDeck();
     void decryptAndDecodeHand();
-    
-    
-
+    void processConsensusProposal(const GameEvent& event);
+    void processConsensusPrevote(const GameEvent& event);
+    void processConsensusPrecommit(const GameEvent& event);
 
 public:
     std::shared_ptr<EventQueue> eventQueue_;

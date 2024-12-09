@@ -4,13 +4,14 @@
 #include "EventQueue.h"
 #include "GameEngine.h"
 #include "MembershipList.h"
+#include "Consensus.h"
 #include "../utils/CryptoUtils.h"
 #include <algorithm>
 #include <random>
 #include <chrono>
 #include <mutex>
 #include <queue>
-
+#include <json/json.h>
 #include <iostream>
 #include <gmpxx.h>
 
@@ -21,7 +22,8 @@ GameEngine::GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQue
     currentState{GamePhase::SETUP, id,1000} ,
     eventQueue_(eventQueue),
     mySeatNumber(id) ,
-    networkManager_(networkManager) {
+    networkManager_(networkManager),
+    consensus_(id, 0, 4) { // Initialize Consensus
     currentState.playerStacks.fill(1000);
     
     try {
@@ -82,12 +84,25 @@ void GameEngine::runGame() {
 }
 
 void GameEngine::handleEvent(const GameEvent &event) {
+    //return;
     switch (event.type) {
         case GameEvent::PLAYER_JOINED:
             processPlayerJoin(event);
             break;
         case GameEvent::REQ_ENCRYPT:
             processEncryptReq(event);
+            break;
+
+        case GameEvent::CONSENSUS_PROPOSAL:
+            processConsensusProposal(event);
+            break;
+
+        case GameEvent::CONSENSUS_PREVOTE:
+            processConsensusPrevote(event);
+            break;
+
+        case GameEvent::CONSENSUS_PRECOMMIT:
+            processConsensusPrecommit(event);
             break;
 
         // case GameEvent::DEAL_CARD:
@@ -116,11 +131,6 @@ bool GameEngine::proposeAction(PlayerAction action, int betAmount) {
         return false;
     }
     
-    if (achieveConsensus(entry)) {
-        updateGameState(entry);
-        commitLog.push(entry);
-        return true;
-    }
     
     return false;
 }
@@ -131,6 +141,12 @@ void GameEngine::processPlayerJoin(const GameEvent &event) {
 
 
     if (isReadyToStart() && currentState.phase == GamePhase::SETUP) {
+        int teamSize = membershipList.getMembers().size();
+
+        consensus_.setTotalNodes(teamSize);
+        int quorum = (teamSize / 2) + 1;
+        consensus_.setQuorum(floor(quorum));
+
         currentState.phase = GamePhase::ENCRYPTION;
         std::cout << "All players are ready. Changing game phase to ENCRYPTION." << std::endl;
         
@@ -151,7 +167,7 @@ void GameEngine::processPlayerJoin(const GameEvent &event) {
             
 
             networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);  // send Message
-
+            consensus_.state.step = ConsensusStep::WAITING_FOR_PROPOSAL;    // Change the state to waiting for proposal
 
         }
 
@@ -167,13 +183,30 @@ void GameEngine::processEncryptReq(const GameEvent &event) {
     }
 
     if (mySeatNumber==membershipList.getLastPlayerIndex()) {
-        currentState.phase=GamePhase::ENC_CONSENNSUS;
+        currentState.phase=GamePhase::ENC_CONSENSUS;
         encryptDeck(event.encodedDeck, encryptedDeck, myKeyPair.publicKey, n);
         shuffleDeck(encryptedDeck);
 
-        printEncodedDeck(encryptedDeck);
-        //std::cout << "Supposed to print deck here." << std::endl;
+        //printEncodedDeck(encryptedDeck);
+        std::cout << "Now proposing broadcasting deck." << std::endl;
         //std::cout << "event.playerId is :" << event.playerId << " and the thing is:" << (mySeatNumber == membershipList.getLastPlayerIndex()) << std::endl;
+        Json::Value deckJson(Json::arrayValue);
+        for (const auto& card : encryptedDeck) {
+            deckJson.append(card.get_str());
+        }
+
+        // Start consensus by proposing the deck
+        std::string proposedDeck = deckJson.toStyledString();
+        //consensus_.onProposalReceived(mySeatNumber, proposedDeck, message);
+        consensus_.state.step = ConsensusStep::PREVOTE;
+        consensus_.state.proposedValue = proposedDeck;
+        consensus_.state.prevotes[mySeatNumber] = proposedDeck; 
+        consensus_.state.isProposer = true;
+        Json::Value proposalMessage;
+        proposalMessage["type"] = "CONSENSUS_PROPOSAL";
+        proposalMessage["proposer_id"] = mySeatNumber;
+        proposalMessage["proposal"] = proposedDeck;
+        networkManager_.broadcastMessage(proposalMessage);
 
 
 
@@ -197,7 +230,68 @@ void GameEngine::processEncryptReq(const GameEvent &event) {
 
     // Send the message to the next player
 
+
     networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);
+    
+    currentState.phase=GamePhase::ENC_CONSENSUS;// Simplied implemetation.Assumed no network error directyl change state to consensus phase
+    consensus_.state.step = ConsensusStep::WAITING_FOR_PROPOSAL;
+}
+
+
+void GameEngine::processConsensusProposal(const GameEvent& event) {
+    int proposerId = event.playerId;
+    if (proposerId != membershipList.getLastPlayerIndex()){return;} //check if the proposer is the last player
+    std::string proposal = event.proposal;
+
+    Json::Value messageToBroadcast;
+    if (consensus_.onProposalReceived(proposerId, proposal, messageToBroadcast)) {
+        // Broadcast the prevote message
+        networkManager_.broadcastMessage(messageToBroadcast);
+    }
+}
+
+void GameEngine::processConsensusPrevote(const GameEvent& event) {
+    int voterId = event.playerId;
+    std::string vote = event.vote;
+
+    Json::Value messageToBroadcast;
+    if (consensus_.onPrevoteReceived(voterId, vote, messageToBroadcast)) {
+        // Broadcast the precommit message
+        networkManager_.broadcastMessage(messageToBroadcast);
+    }
+}
+
+void GameEngine::processConsensusPrecommit(const GameEvent& event) {
+    
+    int voterId = event.playerId;
+    std::string vote = event.vote;
+
+    Json::Value messageToBroadcast;
+    consensus_.onPrecommitReceived(voterId, vote, messageToBroadcast);
+    
+    if (consensus_.hasConsensus()) {
+        // Consensus achieved
+        std::string consensusDeckStr = consensus_.getConsensusValue();
+
+        // Deserialize the deck
+        Json::Value deckJson;
+        Json::CharReaderBuilder reader;
+        std::string errs;
+        std::istringstream s(consensusDeckStr);
+        if (Json::parseFromStream(reader, s, &deckJson, &errs)) {
+            encryptedDeck.clear();
+            for (const auto& cardStr : deckJson) {
+                mpz_class cardValue(cardStr.asString());
+                encryptedDeck.push_back(cardValue);
+            }
+            currentState.phase = GamePhase::DECRYPTION;
+            // Proceed with the game using the consensus deck
+            std::cout << "Consensus on the deck achieved. Proceeding to decryption phase." << std::endl;
+        } else {
+            // Handle parsing error
+            std::cerr << "Failed to parse consensus deck: " << errs << std::endl;
+        }
+    }
 }
 
 bool GameEngine::isReadyToStart() {
@@ -244,16 +338,7 @@ bool GameEngine::isMyTurn() const {
     return currentState.currentSeat == mySeatNumber;
 }
 
-bool GameEngine::achieveConsensus(const CommitEntry& entry) {
-    // In a real implementation, this would implement BFT consensus
-    // For now, simulate consensus success
-    std::cout << "Achieving consensus for action from " << entry.playerHostname << std::endl;
-    
-    // Add action to commit log
-    commitLog.push(entry);
-    
-    return true;
-}
+
 
 void GameEngine::updateGameState(const CommitEntry& entry) {
     // Update player bets

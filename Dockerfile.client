@@ -25,11 +25,14 @@ src/application/GameEngine.cpp \
 src/application/MembershipList.cpp \
 src/application/EventQueue.cpp \
 src/utils/CryptoUtils.cpp \  
+src/network/Consensus.cpp \  
 -pthread -ljsoncpp -lboost_system -lboost_thread -lgmp -lgmpxx \  
 -I/usr/include/jsoncpp \
 -I./src/network \
 -I./src/application \
--I./src/utils  
+-I./src/utils  \
+-I./src/consensus 
+
 
 
 # Run the program

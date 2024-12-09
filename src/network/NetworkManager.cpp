@@ -359,28 +359,21 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
     std::istringstream s(message);
     if (Json::parseFromStream(reader, s, &root, &errs)) {
         std::string type = root["type"].asString();
-        int peerId = root["node_id"].asInt();
-        std::string peerName = root["hostname"].asString();
+        
 
         
         
         if (type == "HELLO") {
-            //std::cout << "Listened a hello, joniid" << std::endl;
-
-            
+            int peerId = root["node_id"].asInt();
+        std::string peerName = root["hostname"].asString();
             std::string tempjoinId=root.get("join_id","").asString();
-            
-
-
             {
                 std::lock_guard<std::mutex> lock(mtx);
-                
+                incomingPeers[peerId] = socket;
                 pendingConnection.Waiting = true;
                 pendingConnection.host=peerName;
 
             }
-
-
 
             // Send WELCOME message
             Json::Value welcomeMsg;
@@ -392,6 +385,7 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
             sendJoinAckToServer(tempjoinId);
 
         } else if (type == "WELCOME") {
+        std::string peerName = root["hostname"].asString();
             int peerId = root["node_id"].asInt();
             {
                 std::lock_guard<std::mutex> lock(mtx);
@@ -401,20 +395,11 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
             
             return;
 
-            // {
-            //     std::lock_guard<std::mutex> lock(mtx);
-            //     outgoingPeers[peerId] = socket;
-            // }
-
-            
-
         } else if (type=="REQ_ENCRYPT") {
+            int peerId = root["node_id"].asInt();
 
-               //std::cout <<"PLAYER "<<nodeId<< "Received REQ_ENCRYPT" << std::endl;
-               
-                //std::cout << std::endl;
-                //create the game event and push it to the queue.
-                Json::Value encryptedDeckJson = root["encrypted_deck"];
+          
+            Json::Value encryptedDeckJson = root["encrypted_deck"];
 
         // Deserialize the encrypted deck
             EncodedDeck tempDeck;
@@ -428,15 +413,40 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
                 event.encodedDeck=tempDeck;  // Assuming nodeId is the playerId
                 eventQueue_->push(event);
             
-        }
-    } else {
+        } else if (type == "CONSENSUS_PROPOSAL") {
+        GameEvent event;
+        event.type = GameEvent::CONSENSUS_PROPOSAL;
+        event.playerId = root["proposer_id"].asInt();
+        event.proposal = root["proposal"].asString();
+        eventQueue_->push(event);
+    } else if (type == "CONSENSUS_PREVOTE") {
+        GameEvent event;
+        event.type = GameEvent::CONSENSUS_PREVOTE;
+        event.playerId = root["voter_id"].asInt();
+        event.vote = root["vote"].asString();
+        eventQueue_->push(event);
+    } else if (type == "CONSENSUS_PRECOMMIT") {
+        GameEvent event;
+        event.type = GameEvent::CONSENSUS_PRECOMMIT;
+        event.playerId = root["voter_id"].asInt();
+        event.vote = root["vote"].asString();
+        eventQueue_->push(event);
+    }
+
+    } 
+    else {
         std::cerr << "Failed to parse peer message: " << errs << std::endl;
     }
 }
 
 
 
-
+void NetworkManager::broadcastMessage(const Json::Value& message) {
+    std::lock_guard<std::mutex> lock(mtx);
+    for (const auto& peer : outgoingPeers) {
+        sendJsonMessage(peer.second, message);
+    }
+}
 
 void NetworkManager::sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socket> socket, const Json::Value& message) {
     Json::StreamWriterBuilder writer;
