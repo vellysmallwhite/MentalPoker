@@ -71,22 +71,22 @@ services:
     depends_on:
       - server
 
-  # player4:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.client
-  #   hostname: player4
-  #   environment:
-  #     - NODE_TYPE=client
-  #     - NODE_ID=player4
-  #     - SERVER_HOST=poker-server.local
-  #     - HOSTNAME=player4.local
-  #   networks:
-  #     poker_network:
-  #       aliases:
-  #         - player4.local
-  #   depends_on:
-  #     - server
+  player4:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    hostname: player4
+    environment:
+      - NODE_TYPE=client
+      - NODE_ID=player4
+      - SERVER_HOST=poker-server.local
+      - HOSTNAME=player4.local
+    networks:
+      poker_network:
+        aliases:
+          - player4.local
+    depends_on:
+      - server
 
 networks:
   poker_network:

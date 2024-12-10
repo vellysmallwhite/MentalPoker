@@ -14,6 +14,7 @@
 #include <json/json.h>
 #include <iostream>
 #include <gmpxx.h>
+#include <set>
 
 
 
@@ -105,15 +106,13 @@ void GameEngine::handleEvent(const GameEvent &event) {
             processConsensusPrecommit(event);
             break;
 
-        // case GameEvent::DEAL_CARD:
-        //     processDealCard(event);
-        //     break;
-        // case GameEvent::PROPOSE_CONSENSUS:
-        //     proposeConsensus(event);
-        //     break;
-        // case GameEvent::CONSENSUS_RESULT:
-        //     applyConsensusResult(event);
-        //     break;
+        case GameEvent::REQ_DECRYPT:
+            processDecryptReq(event);
+            break;
+
+        case GameEvent::SHOWDOWN:
+            processShowdown(event);
+            break;
     }
 }
 
@@ -168,7 +167,7 @@ void GameEngine::processPlayerJoin(const GameEvent &event) {
 
             networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);  // send Message
             consensus_.state.step = ConsensusStep::WAITING_FOR_PROPOSAL;    // Change the state to waiting for proposal
-
+            currentState.phase=GamePhase::ENC_CONSENSUS; // Change the state to consensus phase
         }
 
     }
@@ -268,8 +267,8 @@ void GameEngine::processConsensusPrecommit(const GameEvent& event) {
 
     Json::Value messageToBroadcast;
     consensus_.onPrecommitReceived(voterId, vote, messageToBroadcast);
-    
-    if (consensus_.hasConsensus()) {
+    //if (currentState.phase==GamePhase::DECRYPTION) {return;}
+    if (consensus_.hasConsensus()&& currentState.phase==GamePhase::ENC_CONSENSUS) {
         // Consensus achieved
         std::string consensusDeckStr = consensus_.getConsensusValue();
 
@@ -287,6 +286,9 @@ void GameEngine::processConsensusPrecommit(const GameEvent& event) {
             currentState.phase = GamePhase::DECRYPTION;
             // Proceed with the game using the consensus deck
             std::cout << "Consensus on the deck achieved. Proceeding to decryption phase." << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+            startPassingHand();
         } else {
             // Handle parsing error
             std::cerr << "Failed to parse consensus deck: " << errs << std::endl;
@@ -294,11 +296,126 @@ void GameEngine::processConsensusPrecommit(const GameEvent& event) {
     }
 }
 
+void GameEngine::processDecryptReq(const GameEvent& event) {
+    if (currentState.phase != GamePhase::DECRYPTION) {
+        return;
+    }
+
+    int senderId = event.senderId;
+    if (event.playerId != membershipList.getPredesessorIndex(mySeatNumber)) {
+        return;  // Only process if from predecessor
+    }
+
+    // Deserialize the encrypted hand
+    EncryptedPlayerHand decryptedHand;
+    for (const auto& card : event.encryptedHand.encryptedCards) {
+        mpz_class decryptedCard = SRADecrypt(card, myKeyPair.privateKey, myKeyPair.n);
+        decryptedHand.encryptedCards.push_back(decryptedCard);
+    }
+
+    decryptedPlayers.insert(senderId);
+    if(senderId==mySeatNumber){
+        
+        for (const auto& decCard : decryptedHand.encryptedCards) {
+            int cardNumber = decodeCardValue(decCard);
+            Card card = cardNumberToCard(cardNumber);
+            myDecryptedHand.cards.push_back(card);
+        }
+
+        // Print own hand
+        std::cout << "My Hand:" << std::endl;
+        for (const auto& card : myDecryptedHand.cards) {
+            std::cout << cardToString(card) <<":";
+        }
+        std::cout << std::endl;
+        return;
+    }
+    if (decryptedPlayers.size() == membershipList.getMembers().size()) {
+        currentState.phase = GamePhase::SHOWDOWN;
+        std::cout << "All players have decrypted their hands!" << std::endl;
+        //proceedToShowdown();
+        return;
+    }
+
+    // Pass to successor
+    Json::Value message;
+    message["type"] = "REQ_DECRYPT";
+    message["node_id"] = mySeatNumber;
+    message["sender_id"] = senderId;
+
+    // Serialize the decrypted hand
+    Json::Value handJson(Json::arrayValue);
+    for (const auto& card : decryptedHand.encryptedCards) {
+        handJson.append(card.get_str());
+    }
+    message["encrypted_hand"] = handJson;
+    //std::cout << "Sending REQ_DECRYPT to successor : named" << membershipList.getSusessor(mySeatNumber)<<std::endl;
+
+    networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);
+
+    // Track helped players
+    
+}
+
+void GameEngine::startPassingHand() {
+    // Decrypt the hand
+    EncryptedPlayerHand decryptedHand;
+        Json::Value message;
+
+        message["type"] = "REQ_DECRYPT";
+        message["node_id"] = mySeatNumber;
+        message["sender_id"] = mySeatNumber;  // Pass original sender ID
+        //encr
+        // Serialize the decrypted hand
+        EncryptedPlayerHand tempHand=findPlayerHand(mySeatNumber);
+        Json::Value handJson(Json::arrayValue);
+        for (const auto& card : tempHand.encryptedCards) {
+            handJson.append(card.get_str());
+        }
+        message["encrypted_hand"] = handJson;
+        std::cout << "Sending REQ_DECRYPT to successor : named" << membershipList.getSusessor(mySeatNumber)<<std::endl;
+
+        networkManager_.sendPeerMessage(membershipList.getSusessor(mySeatNumber), message);
+
+        
+    
+}
+
+void GameEngine::proceedToShowdown() {
+    // Broadcast own hand
+    Json::Value message;
+    message["type"] = "SHOWDOWN";
+    message["player_id"] = mySeatNumber;
+
+    // Serialize hand
+    Json::Value handJson(Json::arrayValue);
+    for (const auto& card : myDecryptedHand.cards) {
+        Json::Value cardJson;
+        cardJson["rank"] = card.rank;
+        cardJson["suit"] = card.suit;
+        handJson.append(cardJson);
+    }
+    message["hand"] = handJson;
+
+    networkManager_.broadcastMessage(message);
+}
+
+void GameEngine::processShowdown(const GameEvent& event) {
+    int playerId = event.playerId;
+
+
+    
+    std::vector<int> winners = decideWinners();
+        // Implement consensus to agree on winners
+    proposeWinnersConsensus(winners);
+   
+}
+
 bool GameEngine::isReadyToStart() {
     std::vector<std::string> members = membershipList.getMembers();
     
     // Check if we have at least 2 players but not more than TABLE_SIZE
-    if (members.size() <=2 || members.size()>3) {
+    if (members.size() <=3 || members.size()>4) {
         std::cout << "Not enough players or too many players. Current count: " 
                   << members.size() << std::endl;
         return false;
@@ -433,4 +550,46 @@ void GameEngine::decryptAndDecodeHand() {
     } else {
         std::cerr << "Not enough cards to deal." << std::endl;
     }
+}
+
+std::vector<int> GameEngine::decideWinners() {
+    // Implement poker hand evaluation logic
+    std::vector<int> winners;
+    // For simplicity, assume player with highest card wins
+    
+    return winners;
+}
+
+void GameEngine::proposeWinnersConsensus(const std::vector<int>& winners) {
+    // Serialize winners
+    Json::Value message;
+    message["type"] = "CONSENSUS_PROPOSAL";
+    message["proposer_id"] = mySeatNumber;
+
+    Json::Value winnersJson(Json::arrayValue);
+    for (int winnerId : winners) {
+        winnersJson.append(winnerId);
+    }
+    message["winners"] = winnersJson;
+
+    // First player initiates consensus
+    if (mySeatNumber == membershipList.getFirstPlayerIndex()) {
+        networkManager_.broadcastMessage(message);
+    }
+}
+
+
+EncryptedPlayerHand GameEngine::findPlayerHand(int seatNumber) {
+    EncryptedPlayerHand playerHand;
+
+    // Calculate the indices for the player's hand in the encrypted deck
+    int startIdx = seatNumber * 2 - 2;
+    int endIdx = seatNumber * 2;
+
+    // Extract the subarray from the encrypted deck
+    for (int i = startIdx; i < endIdx; ++i) {
+        playerHand.encryptedCards.push_back(encryptedDeck[i]);
+    }
+
+    return playerHand;
 }

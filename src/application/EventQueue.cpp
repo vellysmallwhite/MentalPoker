@@ -2,6 +2,7 @@
 #include <mutex>
 #include "EventQueue.h"
 
+
     void EventQueue::push(const GameEvent &event) {
         std::lock_guard<std::mutex> lock(m_);
         queue_.push(event);

@@ -431,7 +431,32 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
         event.playerId = root["voter_id"].asInt();
         event.vote = root["vote"].asString();
         eventQueue_->push(event);
-    }
+    } else if (type == "REQ_DECRYPT") {
+            Json::Value encryptedHandJson = root["encrypted_hand"];
+
+            EncryptedPlayerHand tempHand;
+            for (const auto& cardStr : encryptedHandJson) {
+                
+                mpz_class cardValue(cardStr.asString());
+                tempHand.encryptedCards.push_back(cardValue);
+            }
+            GameEvent event;
+            event.type = GameEvent::REQ_DECRYPT;
+
+            event.playerId = root["node_id"].asInt();
+            event.senderId=root["sender_id"].asInt();
+            //std::cout << "Received decrypt request  for player: " << event.senderId << std::endl;
+            event.encryptedHand = tempHand;
+            eventQueue_->push(event);
+
+        } else if (type == "SHOWDOWN") {
+            GameEvent event;
+            event.type = GameEvent::SHOWDOWN;
+            event.playerId = root["sender_id"].asInt();
+            //event.encryptedHand=root["encrypted_hand"].asString();
+
+            eventQueue_->push(event);
+        }
 
     } 
     else {
@@ -453,8 +478,9 @@ void NetworkManager::sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socke
     std::string data = Json::writeString(writer, message);
     //data += "\n";  // Add newline delimiter
     data += '\0';  // Use null character as delimiter
+    //std::cout << "Sending message to peer: " << std::endl;
 
-    std::cout << "Sending message to peer: " << data << std::endl;
+    //std::cout << "Sending message to peer: " << data << std::endl;
 
 
     auto buffer = std::make_shared<std::string>(data);

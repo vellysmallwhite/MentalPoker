@@ -55,6 +55,7 @@ std::string MembershipList::getPredesessor(int index) {
 
 int MembershipList::getPredesessorIndex(int index) {
     std::lock_guard<std::mutex> lock(mtx);
+    
     if (index < 0 || index >= table.size()) {
         std::cerr << "Index out of bounds: " << index << std::endl;
         return -1;

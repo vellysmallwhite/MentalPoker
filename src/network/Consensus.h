@@ -6,7 +6,7 @@
 #include <mutex>
 #include <json/json.h>
 #include <unordered_map>
-
+#include <set>
 
 enum class ConsensusStep {
     NONE,

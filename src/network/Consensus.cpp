@@ -4,6 +4,7 @@
 #include <thread>
 #include <iostream> 
 
+
 Consensus::Consensus(int nodeId, int totalNodes, int faultTolerance)
     : nodeId(nodeId), totalNodes(totalNodes), faultTolerance(faultTolerance) {
     quorum = (2 * faultTolerance) + 1;
@@ -92,7 +93,7 @@ bool Consensus::onPrevoteReceived(int voterId, const std::string& vote, Json::Va
 
 bool Consensus::onPrecommitReceived(int voterId, const std::string& vote, Json::Value& messageToBroadcast) {
     std::lock_guard<std::mutex> lock(state.mtx);
-    //if (state.step != ConsensusStep::PRECOMMIT) {return false;}
+    if (state.step != ConsensusStep::PRECOMMIT) {return false;}
 
     state.precommits[voterId] = vote;
 

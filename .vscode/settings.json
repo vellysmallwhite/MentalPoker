@@ -71,7 +71,8 @@
         "random": "cpp",
         "algorithm": "cpp",
         "fstream": "cpp",
-        "iomanip": "cpp"
+        "iomanip": "cpp",
+        "set": "cpp"
     },
     "configurations": [
 

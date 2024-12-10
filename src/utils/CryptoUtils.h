@@ -20,6 +20,16 @@ struct KeyPair {
     mpz_class n;            // Modulus
 };
 
+// Encrypted Player Hand structure
+struct EncryptedPlayerHand {
+    std::vector<mpz_class> encryptedCards;
+};
+
+// Player Hand structure
+struct PlayerHand {
+    std::vector<Card> cards;
+};
+
 // Generate shared modulus n
 void readSharedModulus(mpz_class& p, mpz_class& q, mpz_class& n, mpz_class& phi_n);
 

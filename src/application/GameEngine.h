@@ -14,6 +14,8 @@
 #include <gmpxx.h>
 #include <iostream>  // Include array header
 #include <memory>    // Add this line
+#include <string>
+#include <set>
 
 enum class GamePhase {
     SETUP,
@@ -79,7 +81,13 @@ private:
     std::vector<Card> deck;
     NetworkManager& networkManager_;  // Reference to NetworkManager
     Consensus consensus_;
+    std::set<int> decryptedPlayers;  // Track players helped in decryption
+    EncryptedPlayerHand myEncryptedHand;
+    PlayerHand myDecryptedHand;
+    
 
+    
+    EncryptedPlayerHand findPlayerHand(int seatNumber);
     bool proposeAction(PlayerAction action, int betAmount = 0);
     bool validateAction(const CommitEntry& entry);
     void broadcastAction(const CommitEntry& entry);
@@ -99,6 +107,12 @@ private:
     void processConsensusProposal(const GameEvent& event);
     void processConsensusPrevote(const GameEvent& event);
     void processConsensusPrecommit(const GameEvent& event);
+    void processDecryptReq(const GameEvent& event);
+    void startPassingHand();
+    void proceedToShowdown();
+    void processShowdown(const GameEvent& event);
+    std::vector<int> decideWinners();
+    void proposeWinnersConsensus(const std::vector<int>& winners);
 
 public:
     std::shared_ptr<EventQueue> eventQueue_;
