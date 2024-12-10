@@ -10,6 +10,7 @@
 #include <mutex>
 #include <queue>
 #include <memory>  // Add this include at the top
+#include <fstream>  // Include the fstream header
 
 // Function to extract numeric part from the end of the hostname
 
@@ -35,6 +36,17 @@ int main() {
     }
     std::cout << "Extracted NodeID: " << nodeId << std::endl;
 
+     // Read player count from file
+    int playerCount = 0;
+    std::ifstream playerCountFile("playerCount");
+    if (playerCountFile.is_open()) {
+        playerCountFile >> playerCount;
+        playerCountFile.close();
+    } else {
+        std::cerr << "Failed to open playerCount file" << std::endl;
+        return 1;
+    }
+
     try {
         // Corrected NetworkManager constructor call
         NetworkManager networkManager(
@@ -47,7 +59,7 @@ int main() {
         );
 
         // Corrected GameEngine constructor call
-        GameEngine gameEngine(membershipList, eventQueue,nodeId,networkManager);
+        GameEngine gameEngine(membershipList, eventQueue,nodeId,networkManager,playerCount);
 
         std::thread networkThread(&NetworkManager::start, &networkManager);
         std::thread gameThread(&GameEngine::runGame, &gameEngine);

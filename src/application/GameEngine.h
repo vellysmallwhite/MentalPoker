@@ -46,10 +46,17 @@ struct GameState {
     std::array<int, 12> playerStacks;
     EncodedDeck encodedDeck;
     EncodedDeck encryptedDeck;
-    std::vector<Card> deck; 
-    std::map<int, std::string> playerCards;
+
+    //std::vector<Card> deck; 
+    std::map<int, Card> playerCards;
     std::map<int, int> playerBets;
     std::vector<PlayerAction> actionHistory;
+    std::map<int, bool> showdownReadiness;
+    std::map<int, std::vector<Card>> showdownHands;
+    std::string winners;
+    int winnerGets;
+    
+    
     int pot;
 
     
@@ -75,6 +82,8 @@ private:
     bool EveryOneReadyToStart;
     KeyPair myKeyPair;
     mpz_class p, q, n, phi_n;
+    int PredefinedCount;
+    std::mutex mtx; // Mutex for thread safety
     
     EncodedDeck encodedDeck;
     EncodedDeck encryptedDeck;
@@ -86,7 +95,7 @@ private:
     PlayerHand myDecryptedHand;
     
 
-    
+
     EncryptedPlayerHand findPlayerHand(int seatNumber);
     bool proposeAction(PlayerAction action, int betAmount = 0);
     bool validateAction(const CommitEntry& entry);
@@ -113,11 +122,14 @@ private:
     void processShowdown(const GameEvent& event);
     std::vector<int> decideWinners();
     void proposeWinnersConsensus(const std::vector<int>& winners);
+    void sendReadyToShowdown();
+    void processShowdownAck(const GameEvent& event);
+    bool ReadyToShowdown();
 
 public:
     std::shared_ptr<EventQueue> eventQueue_;
     //Constructor Here
-    explicit GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQueue,int nodeID,NetworkManager& networkManager);
+    explicit GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQueue,int nodeID,NetworkManager& networkManager,int playercnt);
     void runGame();
     bool isReadyToStart();
     void processActionFromPeer(const CommitEntry& entry);

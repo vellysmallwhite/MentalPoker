@@ -18,14 +18,23 @@
 
 
 
-GameEngine::GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQueue,int id,NetworkManager& networkManager) 
+GameEngine::GameEngine(MembershipList& list,std::shared_ptr<EventQueue> eventQueue,int id,NetworkManager& networkManager,int playercnt) 
     : membershipList(list),
     currentState{GamePhase::SETUP, id,1000} ,
     eventQueue_(eventQueue),
     mySeatNumber(id) ,
     networkManager_(networkManager),
-    consensus_(id, 0, 4) { // Initialize Consensus
+    consensus_(id, 0, 4),
+    PredefinedCount(playercnt) { // Initialize Consensus
     currentState.playerStacks.fill(1000);
+    currentState.pot = 10000;
+    currentState.playerCards.clear();  // Initialize playerCards as an empty map
+    currentState.showdownReadiness.clear();  // Initialize showdownReadiness as an empty map
+    currentState.showdownHands.clear();  // Initialize showdownHands as an empty map
+    currentState.winners="";
+    currentState.winnerGets=0;
+    
+
     
     try {
         readSharedModulus(p, q, n, phi_n);
@@ -113,6 +122,11 @@ void GameEngine::handleEvent(const GameEvent &event) {
         case GameEvent::SHOWDOWN:
             processShowdown(event);
             break;
+
+        case GameEvent::SHOWDOWN_READY_ACK:
+            processShowdownAck(event);
+            break;
+        
     }
 }
 
@@ -140,7 +154,14 @@ void GameEngine::processPlayerJoin(const GameEvent &event) {
 
 
     if (isReadyToStart() && currentState.phase == GamePhase::SETUP) {
-        int teamSize = membershipList.getMembers().size();
+        std::vector<std::string> tempMembers = membershipList.getMembers();
+
+        // Initialize showdownReadiness to false for all members
+        for (const auto& member : tempMembers) {
+            int nodeId = extractNodeId(member);
+            currentState.showdownReadiness[nodeId] = false;
+        }
+        int teamSize = tempMembers.size();
 
         consensus_.setTotalNodes(teamSize);
         int quorum = (teamSize / 2) + 1;
@@ -187,7 +208,7 @@ void GameEngine::processEncryptReq(const GameEvent &event) {
         shuffleDeck(encryptedDeck);
 
         //printEncodedDeck(encryptedDeck);
-        std::cout << "Now proposing broadcasting deck." << std::endl;
+        std::cout << "Now proposing broadcasting deck. "<<std::endl;
         //std::cout << "event.playerId is :" << event.playerId << " and the thing is:" << (mySeatNumber == membershipList.getLastPlayerIndex()) << std::endl;
         Json::Value deckJson(Json::arrayValue);
         for (const auto& card : encryptedDeck) {
@@ -286,7 +307,7 @@ void GameEngine::processConsensusPrecommit(const GameEvent& event) {
             currentState.phase = GamePhase::DECRYPTION;
             // Proceed with the game using the consensus deck
             std::cout << "Consensus on the deck achieved. Proceeding to decryption phase." << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
             startPassingHand();
         } else {
@@ -327,16 +348,23 @@ void GameEngine::processDecryptReq(const GameEvent& event) {
         for (const auto& card : myDecryptedHand.cards) {
             std::cout << cardToString(card) <<":";
         }
+        currentState.showdownHands[mySeatNumber]=myDecryptedHand;
         std::cout << std::endl;
-        return;
+
+        
     }
     if (decryptedPlayers.size() == membershipList.getMembers().size()) {
         currentState.phase = GamePhase::SHOWDOWN;
-        std::cout << "All players have decrypted their hands!" << std::endl;
+        //std::cout << "All players have decrypted their hands!" << std::endl;
+        currentState.showdownReadiness[mySeatNumber] = true;
+
+        sendReadyToShowdown();
+
+        
         //proceedToShowdown();
         return;
     }
-
+    if(senderId==mySeatNumber){return;}
     // Pass to successor
     Json::Value message;
     message["type"] = "REQ_DECRYPT";
@@ -381,6 +409,8 @@ void GameEngine::startPassingHand() {
     
 }
 
+
+
 void GameEngine::proceedToShowdown() {
     // Broadcast own hand
     Json::Value message;
@@ -403,11 +433,24 @@ void GameEngine::proceedToShowdown() {
 void GameEngine::processShowdown(const GameEvent& event) {
     int playerId = event.playerId;
 
+    // Deserialize hand
+    std::vector<Card> playerHand;
+    for (const auto& cardJson : event.handJson) {
+        Card card;
+        card.rank = cardJson["rank"].asInt();
+        card.suit = cardJson["suit"].asString();
+        playerHand.push_back(card);
+    }
 
-    
+    // Record the hand in showdownHands
+    currentState.showdownHands[playerId] = playerHand;
+
+
+    if (currentState.showdownHands.size()== PredefinedCount ){
     std::vector<int> winners = decideWinners();
+    }
         // Implement consensus to agree on winners
-    proposeWinnersConsensus(winners);
+    //proposeWinnersConsensus(winners);
    
 }
 
@@ -415,7 +458,7 @@ bool GameEngine::isReadyToStart() {
     std::vector<std::string> members = membershipList.getMembers();
     
     // Check if we have at least 2 players but not more than TABLE_SIZE
-    if (members.size() <=3 || members.size()>4) {
+    if (members.size() !=PredefinedCount) {
         std::cout << "Not enough players or too many players. Current count: " 
                   << members.size() << std::endl;
         return false;
@@ -552,12 +595,62 @@ void GameEngine::decryptAndDecodeHand() {
     }
 }
 
+
+
 std::vector<int> GameEngine::decideWinners() {
-    // Implement poker hand evaluation logic
+    int maxHandValue = -1;
     std::vector<int> winners;
-    // For simplicity, assume player with highest card wins
-    
+
+    // Calculate hand values and find maximum
+    for (const auto& playerHandPair : currentState.showdownHands) {
+        int playerId = playerHandPair.first;
+        const auto& hand = playerHandPair.second;
+
+        int handValue = 0;
+        for (const auto& card : hand) {
+            handValue += card.rank;
+        }
+        std::cout << "Player " << playerId << " hand value: " << handValue << " || ";
+
+        // Update max value and winners list
+        if (handValue > maxHandValue) {
+            maxHandValue = handValue;
+            winners.clear();
+            winners.push_back(playerId);
+        } else if (handValue == maxHandValue) {
+            winners.push_back(playerId);
+        }
+    }
+
+    // Format the winners string
+    std::ostringstream oss;
+    for (const auto& member : membershipList.getMembers()) {
+        int playerId = extractNodeId(member);
+        bool isWinner = (std::find(winners.begin(), winners.end(), playerId) != winners.end());
+        oss << "player" << playerId << ":" << (isWinner ? "true" : "false") << "||";
+    }
+    currentState.winners = oss.str();
+
+    // Calculate winnings
+    int numWinners = winners.size();
+    currentState.winnerGets = currentState.pot / numWinners;
+
+    std::cout << "Winners are:";
+    for (const auto& winner : winners) {
+        std::cout << "player" << winner << ",";
+        if (winner == mySeatNumber) {
+            std::cout << "I am the winner! I won " << currentState.winnerGets<<" $  !!!"<<std::endl;
+        }
+    }
+
+    // Print winners and winnings
+    std::cout << "Winners: " << currentState.winners << std::endl;
+    std::cout << "Each winner gets: " << currentState.winnerGets << std::endl;
+
+    // Game complete
+
     return winners;
+    //currentState.phase = GamePhase::COMPLETE;
 }
 
 void GameEngine::proposeWinnersConsensus(const std::vector<int>& winners) {
@@ -592,4 +685,40 @@ EncryptedPlayerHand GameEngine::findPlayerHand(int seatNumber) {
     }
 
     return playerHand;
+}
+
+
+void GameEngine::sendReadyToShowdown() {
+    Json::Value message;
+    message["type"] = "READY_TO_SHOWDOWN";
+    message["player_id"] = mySeatNumber;
+    std::cout<<"broadcsating ready to showdonw"<<std::endl;
+
+    networkManager_.broadcastMessage(message);
+}
+
+
+void GameEngine::processShowdownAck(const GameEvent& event) {
+    int playerId = event.playerId;
+
+    // Set the player's readiness to true
+    currentState.showdownReadiness[playerId] = true;
+    std::cout << "Player " << playerId << " is ready for showdown." << std::endl;
+
+    // Check if all players are ready
+    if (ReadyToShowdown()) {
+        // Proceed to showdown
+        proceedToShowdown();
+    }
+}
+
+
+bool GameEngine::ReadyToShowdown() {
+    for (const auto& readiness : currentState.showdownReadiness) {
+        
+        if (!readiness.second) {
+            return false;
+        }
+    }
+    return true;
 }

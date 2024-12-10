@@ -453,10 +453,31 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
             GameEvent event;
             event.type = GameEvent::SHOWDOWN;
             event.playerId = root["sender_id"].asInt();
+            event.handJson = root["hand"];
             //event.encryptedHand=root["encrypted_hand"].asString();
 
             eventQueue_->push(event);
-        }
+        }else if (type == "READY_TO_SHOWDOWN") {
+    int playerId = root["player_id"].asInt();
+
+    GameEvent event;
+    event.type = GameEvent::SHOWDOWN_READY_ACK;
+    event.playerId = playerId;
+
+    eventQueue_->push(event);
+}  else if (type == "SHOWDOWN") {
+    int playerId = root["player_id"].asInt();
+    Json::Value handJson = root["hand"];
+
+    GameEvent event;
+    event.type = GameEvent::SHOWDOWN;
+    event.playerId = playerId;
+
+    // Store handJson in event
+    event.handJson = handJson;
+
+    eventQueue_->push(event);
+}
 
     } 
     else {

@@ -2,10 +2,11 @@
 #include "../utils/CryptoUtils.h"
 #include <queue>
 #include <mutex>
+#include <json/json.h>
 
 // Define the GameEvent struct
 struct GameEvent {
-    enum Type { PLAYER_JOINED, PLAYER_LEFT, REQ_ENCRYPT,REQ_DECRYPT,SHOWDOWN,
+    enum Type { PLAYER_JOINED, PLAYER_LEFT, REQ_ENCRYPT,REQ_DECRYPT,SHOWDOWN_READY_ACK,SHOWDOWN,
     CONSENSUS_PREVOTE,CONSENSUS_PRECOMMIT,CONSENSUS_PROPOSAL} type;
     EncodedDeck encodedDeck;
 
@@ -16,6 +17,9 @@ struct GameEvent {
     std::string proposal;
     EncryptedPlayerHand encryptedHand;
     std::string showdownHand;
+    Json::Value handJson; // For SHOWDOWN hands
+
+    
 };
 
 // Declare the EventQueue class

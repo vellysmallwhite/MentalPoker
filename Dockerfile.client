@@ -14,7 +14,8 @@ WORKDIR /MentalPoker
 
 # Copy only necessary files
 COPY src/ src/
-COPY src/key /src/key  
+COPY src/key /src/key
+COPY src/playerCount /MentalPoker/playerCount  
 
 
 # Compile main.cpp directly with dependencies
