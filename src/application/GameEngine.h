@@ -57,6 +57,7 @@ struct GameState {
     std::string winners;
     int winnerGets;
     std::string winnerConsensus;
+    std::string winnerStr;
     
     
     int pot;
@@ -128,6 +129,7 @@ private:
     void processShowdownAck(const GameEvent& event);
     bool ReadyToShowdown();
     void printWinners(const std::vector<int>& winners);
+    bool ReachConsensu();
 
 public:
     std::shared_ptr<EventQueue> eventQueue_;

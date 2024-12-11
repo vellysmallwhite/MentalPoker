@@ -637,14 +637,23 @@ std::vector<int> GameEngine::decideWinners() {
         bool isWinner = (std::find(winners.begin(), winners.end(), playerId) != winners.end());
         oss << "player" << playerId << ":" << (isWinner ? "true" : "false") << "||";
         if (isWinner) {
-            currentState.winnerConsensus[playerId] = '1';
+            currentState.winnerConsensus[playerId-1] = '1';
+            
             }
     }
     currentState.winners = oss.str();
 
     printWinners(winners);
 
+    if (ReachConsensu()) {
+            std::cout<<"Thank you for playing the game!"<<std::endl;
+
+    }
+
     
+
+
+
     //std::cout << "Each winner gets: " << currentState.winnerGets <<" $" <<std::endl;
     //std::cout<<"Thank you for playing the game"<<std::endl;
 
@@ -737,4 +746,26 @@ bool GameEngine::ReadyToShowdown() {
         }
     }
     return true;
+}
+
+bool GameEngine::ReachConsensu(){
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    if (mySeatNumber==4){
+    std::cout<< " Now proposing Winner consensus "<<std::endl;
+    }
+    else{
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::cout<< " Now voting Winner consensus "<<std::endl;
+
+
+
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+
+
+    std::cout<< "Final consensus achieved. The winner consensus value is: "<< currentState.winnerConsensus<<std::endl;
+    return true;
+    
 }

@@ -17,7 +17,7 @@ struct GameEvent {
     std::string proposal;
     EncryptedPlayerHand encryptedHand;
     std::string showdownHand;
-    Json::Value handJson; // For SHOWDOWN hands
+    Json::Value handJson; 
 
     
 };

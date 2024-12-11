@@ -7,7 +7,6 @@
 #include <fstream>
 #include <stdexcept>
 
-// Helper function to compute GCD
 int gcd(int a, int b) {
     while (b != 0) {
         int temp = b;
@@ -18,7 +17,7 @@ int gcd(int a, int b) {
 }
 
 void readSharedModulus(mpz_class& p, mpz_class& q, mpz_class& n, mpz_class& phi_n) {
-    std::ifstream keyFile("/src/key");  // Use the correct path
+    std::ifstream keyFile("/src/key");  
     if (!keyFile) {
         throw std::runtime_error("Failed to open key file at /src/key.");
     }

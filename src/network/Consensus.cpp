@@ -28,12 +28,13 @@ void Consensus::resetState() {
 
 bool Consensus::onProposalReceived(int proposerId, const std::string& proposal, Json::Value& messageToBroadcast) {
     std::lock_guard<std::mutex> lock(state.mtx);
-    if (state.step != ConsensusStep::WAITING_FOR_PROPOSAL) {return false;}
+    if (state.step != ConsensusStep::WAITING_FOR_PROPOSAL||state.step==ConsensusStep::WAITING_TO_VALIDATE) {return false;}
 
 
     if (state.step == ConsensusStep::WAITING_FOR_PROPOSAL) {
         state.step = ConsensusStep::PREVOTE;
         state.proposedValue = proposal;
+
         state.prevotes[nodeId] = proposal; // Vote for the proposal
         
         // Prepare prevote message to broadcast
@@ -42,6 +43,16 @@ bool Consensus::onProposalReceived(int proposerId, const std::string& proposal, 
         messageToBroadcast["vote"] = proposal;
 
         return true; // Indicates that a message needs to be broadcast
+    }  else {
+        state.step = ConsensusStep::PREVOTE;
+        state.prevotes[nodeId] = proposal; // Vote for the proposal
+
+
+
+        messageToBroadcast["type"] = "CONSENSUS_PREVOTE";
+        messageToBroadcast["voter_id"] = nodeId;
+        messageToBroadcast["vote"] = state.proposedValue;
+
     }
 
     return false;
@@ -63,6 +74,7 @@ bool Consensus::onPrevoteReceived(int voterId, const std::string& vote, Json::Va
     }
 
     // Find the proposed value with the most votes
+    //bad guy will surrender at this point
     std::string mostVotedValue;
     int maxVotes = 0;
     for (const auto& pair : voteCounts) {

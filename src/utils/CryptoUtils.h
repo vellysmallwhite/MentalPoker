@@ -15,8 +15,8 @@ struct Card {
 
 // Key Pair structure
 struct KeyPair {
-    mpz_class publicKey;    // Encryption key (e)
-    mpz_class privateKey;   // Decryption key (d)
+    mpz_class publicKey;    
+    mpz_class privateKey;   
     mpz_class n;            // Modulus
 };
 
@@ -40,7 +40,6 @@ void generateSRAKeyPair(const mpz_class& n, const mpz_class& phi_n, KeyPair& key
 mpz_class SRAEncrypt(const mpz_class& message, const mpz_class& key, const mpz_class& n);
 mpz_class SRADecrypt(const mpz_class& ciphertext, const mpz_class& key, const mpz_class& n);
 
-// Generate a standard deck of 52 cards
 std::vector<Card> generateDeck();
 
 // Shuffle the encoded deck
@@ -54,19 +53,14 @@ int decodeCardValue(const mpz_class& encodedValue);
 Card cardNumberToCard(int cardNumber);
 int cardToCardNumber(const Card& card);
 
-// Encode the entire deck
 void encodeDeck(const std::vector<Card>& deck, EncodedDeck& encodedDeck);
 
-// Encrypt the entire encoded deck
 void encryptDeck(const EncodedDeck& encodedDeck, EncodedDeck& encryptedDeck, const mpz_class& publicKey, const mpz_class& n);
 
-// Decrypt the entire encrypted deck
 void decryptDeck(const EncodedDeck& encryptedDeck, EncodedDeck& decryptedDeck, const mpz_class& privateKey, const mpz_class& n);
 
-// Convert encoded values to Cards
 void decodeDeck(const EncodedDeck& decryptedDeck, std::vector<Card>& deck);
 
-// Display a card as a string
 std::string cardToString(const Card& card);
 
 void printEncodedDeck(const EncodedDeck& deck);

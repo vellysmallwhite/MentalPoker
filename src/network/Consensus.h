@@ -11,6 +11,7 @@
 enum class ConsensusStep {
     NONE,
     WAITING_FOR_PROPOSAL,
+    WAITING_TO_VALIDATE,
     PREVOTE,
     PRECOMMIT,
     COMMIT
