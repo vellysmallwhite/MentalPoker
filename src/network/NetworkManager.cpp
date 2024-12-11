@@ -452,7 +452,7 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
         } else if (type == "SHOWDOWN") {
             GameEvent event;
             event.type = GameEvent::SHOWDOWN;
-            event.playerId = root["sender_id"].asInt();
+            event.playerId = root["player_id"].asInt();
             event.handJson = root["hand"];
             //event.encryptedHand=root["encrypted_hand"].asString();
 

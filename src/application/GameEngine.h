@@ -28,8 +28,9 @@ enum class GamePhase {
     BETTING_ROUND_3,
     
     SHOWDOWN,
-    COMPLETE
-};
+    COMPLETE,
+    WINNER_CONSENSUS
+    };
 
 enum class PlayerAction {
     FOLD,
@@ -55,6 +56,7 @@ struct GameState {
     std::map<int, std::vector<Card>> showdownHands;
     std::string winners;
     int winnerGets;
+    std::string winnerConsensus;
     
     
     int pot;
@@ -125,6 +127,7 @@ private:
     void sendReadyToShowdown();
     void processShowdownAck(const GameEvent& event);
     bool ReadyToShowdown();
+    void printWinners(const std::vector<int>& winners);
 
 public:
     std::shared_ptr<EventQueue> eventQueue_;
