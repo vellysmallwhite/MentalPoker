@@ -15,6 +15,8 @@
 #include <iostream>
 #include <gmpxx.h>
 #include <set>
+#include <cmath>
+#include <sstream>
 
 
 
@@ -363,6 +365,13 @@ void GameEngine::processDecryptReq(const GameEvent& event) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
         sendReadyToShowdown();
 
+        // READY messages can arrive before this node finishes decrypting its
+        // own hand. Re-check after setting the local flag so that event order
+        // cannot strand the legacy flow before showdown.
+        if (ReadyToShowdown()) {
+            proceedToShowdown();
+        }
+
         
         //proceedToShowdown();
         return;
@@ -415,6 +424,11 @@ void GameEngine::startPassingHand() {
 
 
 void GameEngine::proceedToShowdown() {
+    if (showdownRevealSent) {
+        return;
+    }
+    showdownRevealSent = true;
+
     // Broadcast own hand
     Json::Value message;
     message["type"] = "SHOWDOWN";
@@ -451,7 +465,9 @@ void GameEngine::processShowdown(const GameEvent& event) {
 
 
 
-    if (currentState.showdownHands.size()== PredefinedCount) {
+    if (!winnerDecisionStarted &&
+        currentState.showdownHands.size() == static_cast<std::size_t>(PredefinedCount)) {
+        winnerDecisionStarted = true;
         //std::cout << "All players have shown their hands!" << std::endl;
         //currentState.phase = GamePhase::DECIDE_WINNER;
        decideWinners();
@@ -727,6 +743,7 @@ void GameEngine::processShowdownAck(const GameEvent& event) {
     int playerId = event.playerId;
 
     // Set the player's readiness to true
+    bool wasReady = currentState.showdownReadiness[playerId];
     currentState.showdownReadiness[playerId] = true;
     //std::cout << "Player " << playerId << " is ready for showdown." << std::endl;
 
@@ -734,6 +751,13 @@ void GameEngine::processShowdownAck(const GameEvent& event) {
     if (ReadyToShowdown()) {
         // Proceed to showdown
         proceedToShowdown();
+    } else if (!wasReady && currentState.showdownReadiness[mySeatNumber] &&
+               !showdownReadyEchoSent) {
+        // A peer may have missed our one-shot READY while it was still
+        // decrypting. Echo only when learning a new READY, which converges
+        // without creating an unbounded acknowledgement loop.
+        showdownReadyEchoSent = true;
+        sendReadyToShowdown();
     }
 }
 

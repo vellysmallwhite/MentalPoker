@@ -1,0 +1,71 @@
+name: Legacy v1 baseline
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            cmake \
+            libboost-system-dev \
+            libboost-thread-dev \
+            libgmp-dev \
+            libjsoncpp-dev \
+            ninja-build \
+            pkg-config
+
+      - name: Record fixed language toolchains
+        run: |
+          python3 --version
+          rustc --version
+
+      - name: Build and test native release baseline
+        run: |
+          cmake --preset ci-release
+          cmake --build --preset ci-release --parallel
+          ctest --preset ci-release
+          python3 -m unittest discover -s tests/legacy -p 'test_*.py' -v
+
+      - name: Validate Compose model
+        run: docker compose config --quiet
+
+      - name: Run the four-node baseline three times
+        run: python3 tests/legacy/run_smoke.py --repeat 3 --timeout 180
+
+      - name: Build and test with ASan and UBSan
+        run: |
+          cmake --preset asan-ubsan
+          cmake --build --preset asan-ubsan --parallel
+          ctest --preset asan-ubsan
+          python3 tests/legacy/run_smoke.py \
+            --preset asan-ubsan \
+            --repeat 1 \
+            --timeout 180 \
+            --artifact-dir artifacts/legacy-smoke-sanitized
+
+      - name: Upload sanitized baseline diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-baseline-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 14

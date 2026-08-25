@@ -1,40 +1,94 @@
-# Dockerfile.client
-FROM gcc:latest
+# This image exists only to reproduce the legacy v1 baseline. It must never be
+# used as a production image for Protocol v2.
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
-# Install only required libraries
-RUN apt-get update && \
-    apt-get install -y \
-    libjsoncpp-dev \
-    libboost-system-dev \
-    libgmp-dev \ 
-    libboost-thread-dev &&\
-    rm -rf /var/lib/apt/lists/*
+FROM ${UBUNTU_IMAGE} AS builder
 
-WORKDIR /MentalPoker
+ARG DEBIAN_FRONTEND=noninteractive
+ARG UBUNTU_SNAPSHOT=20260810T000000Z
+ARG CMAKE_PRESET=ci-release
 
-# Copy only necessary files
+RUN sed -ri \
+        "s#https?://(archive.ubuntu.com/ubuntu|security.ubuntu.com/ubuntu|ports.ubuntu.com/ubuntu-ports)/?#https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/#g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && printf '%s\n' \
+        'Acquire::Check-Valid-Until "false";' \
+        'Acquire::https::Verify-Peer "false";' \
+        > /etc/apt/apt.conf.d/99snapshot-bootstrap \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm /etc/apt/apt.conf.d/99snapshot-bootstrap \
+    && printf 'Acquire::Check-Valid-Until "false";\n' \
+        > /etc/apt/apt.conf.d/99snapshot \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        build-essential \
+        cmake \
+        libboost-system-dev \
+        libboost-thread-dev \
+        libgmp-dev \
+        libjsoncpp-dev \
+        ninja-build \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY CMakeLists.txt CMakePresets.json ./
+COPY cmake/ cmake/
 COPY src/ src/
+
+RUN cmake --preset "${CMAKE_PRESET}" \
+    && cmake --build --preset "${CMAKE_PRESET}" --parallel \
+    && ctest --preset "${CMAKE_PRESET}" \
+    && cmake --install "out/build/${CMAKE_PRESET}" --prefix /opt/mental-poker
+
+FROM ${UBUNTU_IMAGE} AS runtime
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG UBUNTU_SNAPSHOT=20260810T000000Z
+
+RUN sed -ri \
+        "s#https?://(archive.ubuntu.com/ubuntu|security.ubuntu.com/ubuntu|ports.ubuntu.com/ubuntu-ports)/?#https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/#g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && printf '%s\n' \
+        'Acquire::Check-Valid-Until "false";' \
+        'Acquire::https::Verify-Peer "false";' \
+        > /etc/apt/apt.conf.d/99snapshot-bootstrap \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm /etc/apt/apt.conf.d/99snapshot-bootstrap \
+    && printf 'Acquire::Check-Valid-Until "false";\n' \
+        > /etc/apt/apt.conf.d/99snapshot \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        libasan8 \
+        libboost-atomic1.83.0 \
+        libboost-system1.83.0 \
+        libboost-thread1.83.0 \
+        libgmp10 \
+        libgmpxx4ldbl \
+        libjsoncpp25 \
+        libubsan1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 mentalpoker \
+    && useradd --no-log-init --uid 10001 --gid 10001 \
+        --home-dir /opt/mental-poker --shell /usr/sbin/nologin mentalpoker
+
+LABEL org.opencontainers.image.title="MentalPoker legacy v1 smoke node" \
+      org.opencontainers.image.description="Test-only baseline; not a Protocol v2 release image"
+
+WORKDIR /opt/mental-poker
+
+COPY --from=builder /opt/mental-poker/bin/mental-poker-legacy ./mental-poker-legacy
+COPY --chown=10001:10001 src/playerCount ./playerCount
 COPY src/key /src/key
-COPY src/playerCount /MentalPoker/playerCount  
 
+RUN chmod 0444 /src/key /opt/mental-poker/playerCount \
+    && chmod 0555 /opt/mental-poker/mental-poker-legacy \
+    && ldd /opt/mental-poker/mental-poker-legacy \
+    && test -z "$(ldd /opt/mental-poker/mental-poker-legacy | sed -n '/not found/p')"
 
-# Compile main.cpp directly with dependencies
-RUN g++ -std=c++17 -o poker \
-src/main.cpp \
-src/network/NetworkManager.cpp \
-src/application/GameEngine.cpp \
-src/application/MembershipList.cpp \
-src/application/EventQueue.cpp \
-src/utils/CryptoUtils.cpp \  
-src/network/Consensus.cpp \  
--pthread -ljsoncpp -lboost_system -lboost_thread -lgmp -lgmpxx \  
--I/usr/include/jsoncpp \
--I./src/network \
--I./src/application \
--I./src/utils  \
--I./src/consensus 
+USER 10001:10001
 
-
-
-# Run the program
-CMD ["./poker"]
+ENTRYPOINT ["./mental-poker-legacy"]

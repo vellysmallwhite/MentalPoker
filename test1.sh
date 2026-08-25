@@ -1,5 +1,5 @@
-#!/bin/bash
-docker-compose down
+#!/usr/bin/env bash
+set -euo pipefail
 
-docker-compose build
-docker-compose up
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "${script_dir}/tests/legacy/run_smoke.py" "$@"

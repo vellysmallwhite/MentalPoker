@@ -1,73 +1,69 @@
-###############Instruction on how to run the code:
-#####################################################################
-Make the Script Executable:
+# MentalPoker
 
-Use the chmod +x command to make the test1.sh script executable:
-chmod +x ./test1.sh
-Run the Script:
-./tes1.sh
+This repository is being migrated from an experimental v1 implementation to
+Protocol v2. The current executable and Compose topology are retained only as a
+repeatable legacy baseline. They are not suitable for real-money, token, or
+high-value play.
 
-What is does:
-Server Initialization:
+The measured stage-1 environment, results, warnings, and legacy limits are
+recorded in
+[`docs/baseline/Phase-1-Legacy-Baseline.md`](docs/baseline/Phase-1-Legacy-Baseline.md).
 
-The server (server.py) is started, which listens for incoming client connections and manages rooms and members.
-Client Initialization:
+## Prerequisites
 
-The client application (main.cpp) is started, which initializes the NetworkManager and connects to the server.
-The NetworkManager handles peer connections, handshakes, and communication with the server.
-Peer-to-Peer Communication:
+The canonical build environment is the pinned Ubuntu 24.04 container. For a
+native build, install CMake 3.28+, Ninja, Boost.System/Thread, GMP/GMPXX,
+jsoncpp, pkg-config, and a C++20 compiler.
 
-Clients establish peer-to-peer connections, perform handshakes, and communicate with each other.
-The server coordinates the joining process and ensures that all peers are properly connected.
+Python 3.12 is used for the legacy lobby and integration runner. Rust 1.98.0 is
+pinned now so later stages start from a fixed toolchain; stage 1 does not yet
+contain Rust code.
 
+## Native baseline build
 
+```sh
+cmake --preset dev-debug
+cmake --build --preset dev-debug
+ctest --preset dev-debug
+```
 
-General flow prompt:
-How 
-The game rule is this:
-The game start, (encryption phase, which will end by all players agree on the last player's encrypted deck with consens algorithmn), in this phase:the player at the first seat [membershipList.getFirstPlayer() ]generate a pile of cards and encrypted it and pass it down to his predecessor (each player will have a full table view,so that he can access the membershipList.getsuccessor(), also he knew the last player membershiplist.getLastPlayer()).
-whenever a player receives a message from networkmanager that has status (shuffle and encrypt) , he will check if the one send him this is his predecessor, if so he will accept it and  pass it down to his successor. 
+Release and sanitizer variants use the same source target:
 
+```sh
+cmake --preset ci-release
+cmake --build --preset ci-release
+ctest --preset ci-release
 
-The game rule is this:The game start, (encryption phase, which will end by all players agree on the last player's encrypted deck with consens algorithmn), in this phase:the player at the first seat [membershipList.getFirstPlayer() ]generate a pile of cards and encrypted it and pass it down to his predecessor (each player will have a full table view,so that he can access the membershipList.getPredesessor(), also he knew the last player membershiplist.getLastPlayer()).The game flow is like this that, whenever a player is connect has roommember > 2. He will ask all the member if they are prepare, to start the game. If so, they start it. Like for this poker game it is simple, it should be structure with hand(which means a whole round of game, from start to showndon). Each hand will have gamephase, and a commitEntry. 
+cmake --preset asan-ubsan
+cmake --build --preset asan-ubsan
+ctest --preset asan-ubsan
+```
 
-3. Card Distribution Phase
-   - Decryption Round:
-     * Each player receives and decrypts their cards in a circular process
-     * Player encrypts card and passes to the next player
-     * Player signals "ready" after successfully receiving and decrypting their own cards
-     * Continue until all players have their cards and are ready
+All generated files are written below `out/`.
 
-4. Gameplay Phases
-   a) Action Phase (rotating through player seats)
-      - Current player chooses to:
-        * Place a bet
-        * Fold
-      - Player broadcasts action
-      - Other players use consensus to agree on the action
-      - Move to next player's turn
+## Four-node legacy smoke test
 
-   b) Betting Round
-      - Players decide to:
-        * Raise
-        * Call
-        * Fold
-      - Consensus required for each action
+Start Docker, then run:
 
-   c) Winner Determination
-      - All players reveal their cards
-      - Use consensus algorithm to agree on the winner
+```sh
+./test1.sh
+```
 
-Key Design Principles:
-- Distributed architecture
-- Consensus-driven decision-making
-- Secure card handling through encryption
-- Transparent and verifiable game progression
+The runner builds the pinned images, starts the lobby and four players in a
+controlled order, requires every player to finish the existing hand flow, and
+repeats the run three times. It exits non-zero on timeout, an early container
+exit, a missing phase marker, or sanitizer diagnostics.
 
-This structure ensures a fair, secure, and synchronized multiplayer poker experience across a distributed network.
+Useful options:
 
+```sh
+./test1.sh --repeat 1 --timeout 180
+./test1.sh --preset asan-ubsan --repeat 1
+```
 
-Here is the structure of my project, rephrase to make it more clear : structure of distributed gameplay. My client will start by asking server(which keep the list of rooms and room members) for rooms to join, and get the list of peers to contact with.After enough people join a table and everyone is ready, people will start a game by synchronizing with all the peers. The game will be a simple mental poker game with following phase: agreeing on card encoding->ready to encrypt->encrypt and shuffle->agreeing on shuffle encryption deck using bft consensus module->each player request to decrypt his own card(deryption phase, a player will accept encrypted card from his predecessor and encrypt it then pass it to his succesor ) and say ready when he received his own encrypted cards and successfully decrypted it. -> keep helping others to encrypt until everyone is ready -> when every one is ready, procced to game phase(the game phase is 3 phase:(action start as seat1).Each player do an action- place bet or fold. And broadcast his action to everyone(propose for a commit), everyone has to first do an concensus to agree on this action before it is commited. After the current action has been done, all player will move to the next phase of game state( waiting for next player in the seat for action).2. everyone raise call or fold. 3. When there is no more action to be done. Everyone will enter a calculate winner phase, where everyone will show his card and everyone will agree on a winner using concensus algorithmn.
+Sanitized logs and a machine-readable summary are written under
+`artifacts/legacy-smoke/`. Raw private card lines and large legacy crypto values
+are not retained.
 
-
-Also add a table array in the gameEngine or membershiplist that call getMembers for update. talbe is of size 12,each entry is an player structure , player has the following status: stack size, game state(game num,sequence num, last action, previous block hash),join time,.(design me the completed data structure). 
+The old ten-player script is not a phase-1 acceptance gate and remains an
+unverified legacy utility.

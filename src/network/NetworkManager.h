@@ -1,11 +1,14 @@
 #pragma once
 #ifndef NETWORKMANAGER_H
 #define NETWORKMANAGER_H
+#include <atomic>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <map>
 #include <mutex>
 #include <queue>
+#include <thread>
 #include <netinet/in.h>
 #include <boost/asio.hpp>
 #include <json/json.h>
@@ -58,6 +61,7 @@ private:
     boost::asio::ip::tcp::acceptor acceptor;
     //std::map<int, PendingConnection> pendingConnections;
     std::mutex mtx;
+    std::mutex peerWriteMtx;
     //Threads
     std::thread receiverThread;
     std::thread ioThread;
@@ -70,6 +74,10 @@ private:
 
 
     void startRead(std::shared_ptr<boost::asio::ip::tcp::socket> socket);
+    void startRead(
+        std::shared_ptr<boost::asio::ip::tcp::socket> socket,
+        std::shared_ptr<boost::asio::streambuf> buffer
+    );
     void setupAsyncListener();
     void handleNewConnection();
     //void startPeerHandshake(const std::string& peerHostname);

@@ -96,6 +96,9 @@ private:
     std::set<int> decryptedPlayers;  // Track players helped in decryption
     EncryptedPlayerHand myEncryptedHand;
     PlayerHand myDecryptedHand;
+    bool showdownReadyEchoSent = false;
+    bool showdownRevealSent = false;
+    bool winnerDecisionStarted = false;
     
 
 

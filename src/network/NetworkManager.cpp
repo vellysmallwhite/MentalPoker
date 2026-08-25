@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <cstring>
+#include <netdb.h>
+#include <netinet/tcp.h>
 #include <json/json.h>
 #include <vector>
 #include <map>
@@ -19,6 +22,7 @@
 #include <mutex>
 #include <queue>
 #include <memory>  // Include this if not already included
+#include <sstream>
 
 
 
@@ -274,9 +278,15 @@ void NetworkManager::setupAsyncListener() {
 }
 
 void NetworkManager::startRead(std::shared_ptr<boost::asio::ip::tcp::socket> socket) {
-    auto buffer = std::make_shared<boost::asio::streambuf>();
+    startRead(socket, std::make_shared<boost::asio::streambuf>());
+}
+
+void NetworkManager::startRead(
+    std::shared_ptr<boost::asio::ip::tcp::socket> socket,
+    std::shared_ptr<boost::asio::streambuf> buffer
+) {
     boost::asio::async_read_until(*socket, *buffer, '\0',
-        [this, socket, buffer](const boost::system::error_code& ec, std::size_t bytesTransferred) {
+        [this, socket, buffer](const boost::system::error_code& ec, std::size_t) {
             if (!ec) {
                 std::istream is(buffer.get());
                 std::string message;
@@ -287,7 +297,9 @@ void NetworkManager::startRead(std::shared_ptr<boost::asio::ip::tcp::socket> soc
                 }
 
                 // Continue reading from the socket
-                startRead(socket);
+                // Reuse the buffer: async_read_until may already have read one
+                // or more following frames after the first delimiter.
+                startRead(socket, buffer);
             } else {
                 std::cerr << "Error reading from peer: " << ec.message() << std::endl;
                 // Handle disconnection
@@ -358,6 +370,10 @@ void NetworkManager::processPeerMessage(std::shared_ptr<boost::asio::ip::tcp::so
 
     std::istringstream s(message);
     if (Json::parseFromStream(reader, s, &root, &errs)) {
+        if (!root.isObject()) {
+            std::cerr << "Rejected non-object peer message" << std::endl;
+            return;
+        }
         std::string type = root["type"].asString();
         
 
@@ -504,13 +520,15 @@ void NetworkManager::sendJsonMessage(std::shared_ptr<boost::asio::ip::tcp::socke
     //std::cout << "Sending message to peer: " << data << std::endl;
 
 
-    auto buffer = std::make_shared<std::string>(data);
-    boost::asio::async_write(*socket, boost::asio::buffer(*buffer),
-        [socket, buffer](const boost::system::error_code& ec, std::size_t) {
-            if (ec) {
-                std::cerr << "Error sending message to peer: " << ec.message() << std::endl;
-            }
-        });
+    // The legacy implementation previously allowed overlapping async writes
+    // on one socket, which can interleave the null-delimited JSON frames.
+    // Serialize complete frames without changing the v1 wire representation.
+    std::lock_guard<std::mutex> writeLock(peerWriteMtx);
+    boost::system::error_code error;
+    boost::asio::write(*socket, boost::asio::buffer(data), error);
+    if (error) {
+        std::cerr << "Error sending message to peer: " << error.message() << std::endl;
+    }
 }
 
 void NetworkManager::sendPeerMessage(const std::string& peerHostname, const Json::Value& message) {
